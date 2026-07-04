@@ -57,10 +57,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/sid/Documents/GitHub/self-learning-chess/cpp_engine
+CMAKE_SOURCE_DIR = /home/sid/Documents/GitHub/G-ForceZero/cpp_engine
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/sid/Documents/GitHub/self-learning-chess/cpp_engine
+CMAKE_BINARY_DIR = /home/sid/Documents/GitHub/G-ForceZero/cpp_engine
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -87,9 +87,9 @@ rebuild_cache/fast: rebuild_cache
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/CMakeFiles /home/sid/Documents/GitHub/self-learning-chess/cpp_engine//CMakeFiles/progress.marks
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/CMakeFiles /home/sid/Documents/GitHub/G-ForceZero/cpp_engine//CMakeFiles/progress.marks
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/CMakeFiles 0
 .PHONY : all
 
 # The main clean target
@@ -117,32 +117,6 @@ depend:
 .PHONY : depend
 
 #=============================================================================
-# Target rules for targets named tuner
-
-# Build rule for target.
-tuner: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tuner
-.PHONY : tuner
-
-# fast build rule for target.
-tuner/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/tuner.dir/build.make CMakeFiles/tuner.dir/build
-.PHONY : tuner/fast
-
-#=============================================================================
-# Target rules for targets named classical_engine
-
-# Build rule for target.
-classical_engine: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 classical_engine
-.PHONY : classical_engine
-
-# fast build rule for target.
-classical_engine/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/classical_engine.dir/build.make CMakeFiles/classical_engine.dir/build
-.PHONY : classical_engine/fast
-
-#=============================================================================
 # Target rules for targets named nnue_engine
 
 # Build rule for target.
@@ -154,30 +128,6 @@ nnue_engine: cmake_check_build_system
 nnue_engine/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/nnue_engine.dir/build.make CMakeFiles/nnue_engine.dir/build
 .PHONY : nnue_engine/fast
-
-classical_engine.o: classical_engine.cpp.o
-.PHONY : classical_engine.o
-
-# target to build an object file
-classical_engine.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/classical_engine.dir/build.make CMakeFiles/classical_engine.dir/classical_engine.cpp.o
-.PHONY : classical_engine.cpp.o
-
-classical_engine.i: classical_engine.cpp.i
-.PHONY : classical_engine.i
-
-# target to preprocess a source file
-classical_engine.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/classical_engine.dir/build.make CMakeFiles/classical_engine.dir/classical_engine.cpp.i
-.PHONY : classical_engine.cpp.i
-
-classical_engine.s: classical_engine.cpp.s
-.PHONY : classical_engine.s
-
-# target to generate assembly for a file
-classical_engine.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/classical_engine.dir/build.make CMakeFiles/classical_engine.dir/classical_engine.cpp.s
-.PHONY : classical_engine.cpp.s
 
 nnue.o: nnue.cpp.o
 .PHONY : nnue.o
@@ -227,30 +177,6 @@ nnue_engine.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/nnue_engine.dir/build.make CMakeFiles/nnue_engine.dir/nnue_engine.cpp.s
 .PHONY : nnue_engine.cpp.s
 
-tuner.o: tuner.cpp.o
-.PHONY : tuner.o
-
-# target to build an object file
-tuner.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/tuner.dir/build.make CMakeFiles/tuner.dir/tuner.cpp.o
-.PHONY : tuner.cpp.o
-
-tuner.i: tuner.cpp.i
-.PHONY : tuner.i
-
-# target to preprocess a source file
-tuner.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/tuner.dir/build.make CMakeFiles/tuner.dir/tuner.cpp.i
-.PHONY : tuner.cpp.i
-
-tuner.s: tuner.cpp.s
-.PHONY : tuner.s
-
-# target to generate assembly for a file
-tuner.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/tuner.dir/build.make CMakeFiles/tuner.dir/tuner.cpp.s
-.PHONY : tuner.cpp.s
-
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -259,21 +185,13 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
-	@echo "... classical_engine"
 	@echo "... nnue_engine"
-	@echo "... tuner"
-	@echo "... classical_engine.o"
-	@echo "... classical_engine.i"
-	@echo "... classical_engine.s"
 	@echo "... nnue.o"
 	@echo "... nnue.i"
 	@echo "... nnue.s"
 	@echo "... nnue_engine.o"
 	@echo "... nnue_engine.i"
 	@echo "... nnue_engine.s"
-	@echo "... tuner.o"
-	@echo "... tuner.i"
-	@echo "... tuner.s"
 .PHONY : help
 
 

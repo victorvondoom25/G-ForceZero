@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/sid/Documents/GitHub/self-learning-chess/cpp_engine
+CMAKE_SOURCE_DIR = /home/sid/Documents/GitHub/G-ForceZero/cpp_engine
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/sid/Documents/GitHub/self-learning-chess/cpp_engine
+CMAKE_BINARY_DIR = /home/sid/Documents/GitHub/G-ForceZero/cpp_engine
 
 # Include any dependencies generated for this target.
 include CMakeFiles/nnue_engine.dir/depend.make
@@ -75,30 +75,30 @@ CMakeFiles/nnue_engine.dir/codegen:
 CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o: CMakeFiles/nnue_engine.dir/flags.make
 CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o: nnue_engine.cpp
 CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o: CMakeFiles/nnue_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/sid/Documents/GitHub/self-learning-chess/cpp_engine/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o -MF CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o.d -o CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o -c /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue_engine.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/sid/Documents/GitHub/G-ForceZero/cpp_engine/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o -MF CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o.d -o CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o -c /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue_engine.cpp
 
 CMakeFiles/nnue_engine.dir/nnue_engine.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/nnue_engine.dir/nnue_engine.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue_engine.cpp > CMakeFiles/nnue_engine.dir/nnue_engine.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue_engine.cpp > CMakeFiles/nnue_engine.dir/nnue_engine.cpp.i
 
 CMakeFiles/nnue_engine.dir/nnue_engine.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/nnue_engine.dir/nnue_engine.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue_engine.cpp -o CMakeFiles/nnue_engine.dir/nnue_engine.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue_engine.cpp -o CMakeFiles/nnue_engine.dir/nnue_engine.cpp.s
 
 CMakeFiles/nnue_engine.dir/nnue.cpp.o: CMakeFiles/nnue_engine.dir/flags.make
 CMakeFiles/nnue_engine.dir/nnue.cpp.o: nnue.cpp
 CMakeFiles/nnue_engine.dir/nnue.cpp.o: CMakeFiles/nnue_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/sid/Documents/GitHub/self-learning-chess/cpp_engine/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/nnue_engine.dir/nnue.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/nnue_engine.dir/nnue.cpp.o -MF CMakeFiles/nnue_engine.dir/nnue.cpp.o.d -o CMakeFiles/nnue_engine.dir/nnue.cpp.o -c /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/sid/Documents/GitHub/G-ForceZero/cpp_engine/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/nnue_engine.dir/nnue.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/nnue_engine.dir/nnue.cpp.o -MF CMakeFiles/nnue_engine.dir/nnue.cpp.o.d -o CMakeFiles/nnue_engine.dir/nnue.cpp.o -c /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue.cpp
 
 CMakeFiles/nnue_engine.dir/nnue.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/nnue_engine.dir/nnue.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue.cpp > CMakeFiles/nnue_engine.dir/nnue.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue.cpp > CMakeFiles/nnue_engine.dir/nnue.cpp.i
 
 CMakeFiles/nnue_engine.dir/nnue.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/nnue_engine.dir/nnue.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue.cpp -o CMakeFiles/nnue_engine.dir/nnue.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue.cpp -o CMakeFiles/nnue_engine.dir/nnue.cpp.s
 
 # Object files for target nnue_engine
 nnue_engine_OBJECTS = \
@@ -113,7 +113,7 @@ nnue_engine: CMakeFiles/nnue_engine.dir/nnue.cpp.o
 nnue_engine: CMakeFiles/nnue_engine.dir/build.make
 nnue_engine: CMakeFiles/nnue_engine.dir/compiler_depend.ts
 nnue_engine: CMakeFiles/nnue_engine.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/sid/Documents/GitHub/self-learning-chess/cpp_engine/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Linking CXX executable nnue_engine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/sid/Documents/GitHub/G-ForceZero/cpp_engine/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Linking CXX executable nnue_engine"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/nnue_engine.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
@@ -125,6 +125,6 @@ CMakeFiles/nnue_engine.dir/clean:
 .PHONY : CMakeFiles/nnue_engine.dir/clean
 
 CMakeFiles/nnue_engine.dir/depend:
-	cd /home/sid/Documents/GitHub/self-learning-chess/cpp_engine && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/sid/Documents/GitHub/self-learning-chess/cpp_engine /home/sid/Documents/GitHub/self-learning-chess/cpp_engine /home/sid/Documents/GitHub/self-learning-chess/cpp_engine /home/sid/Documents/GitHub/self-learning-chess/cpp_engine /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/CMakeFiles/nnue_engine.dir/DependInfo.cmake "--color=$(COLOR)" nnue_engine
+	cd /home/sid/Documents/GitHub/G-ForceZero/cpp_engine && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/sid/Documents/GitHub/G-ForceZero/cpp_engine /home/sid/Documents/GitHub/G-ForceZero/cpp_engine /home/sid/Documents/GitHub/G-ForceZero/cpp_engine /home/sid/Documents/GitHub/G-ForceZero/cpp_engine /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/CMakeFiles/nnue_engine.dir/DependInfo.cmake "--color=$(COLOR)" nnue_engine
 .PHONY : CMakeFiles/nnue_engine.dir/depend
 

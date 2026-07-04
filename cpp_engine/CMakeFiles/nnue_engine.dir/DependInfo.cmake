@@ -8,8 +8,8 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue.cpp" "CMakeFiles/nnue_engine.dir/nnue.cpp.o" "gcc" "CMakeFiles/nnue_engine.dir/nnue.cpp.o.d"
-  "/home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue_engine.cpp" "CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o" "gcc" "CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o.d"
+  "/home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue.cpp" "CMakeFiles/nnue_engine.dir/nnue.cpp.o" "gcc" "CMakeFiles/nnue_engine.dir/nnue.cpp.o.d"
+  "/home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue_engine.cpp" "CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o" "gcc" "CMakeFiles/nnue_engine.dir/nnue_engine.cpp.o.d"
   "" "nnue_engine" "gcc" "CMakeFiles/nnue_engine.dir/link.d"
   )
 

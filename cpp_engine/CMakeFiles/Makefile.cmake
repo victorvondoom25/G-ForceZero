@@ -54,7 +54,5 @@ set(CMAKE_MAKEFILE_PRODUCTS
 
 # Dependency information for all targets:
 set(CMAKE_DEPEND_INFO_FILES
-  "CMakeFiles/tuner.dir/DependInfo.cmake"
-  "CMakeFiles/classical_engine.dir/DependInfo.cmake"
   "CMakeFiles/nnue_engine.dir/DependInfo.cmake"
   )

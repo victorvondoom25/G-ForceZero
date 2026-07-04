@@ -1,7 +1,7 @@
 CMakeFiles/nnue_engine.dir/nnue.cpp.o: \
- /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue.cpp \
+ /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue.cpp \
  /usr/include/stdc-predef.h \
- /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/nnue.hpp \
+ /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/nnue.hpp \
  /usr/include/c++/16/cstdint \
  /usr/include/c++/16/x86_64-redhat-linux/bits/c++config.h \
  /usr/include/bits/wordsize.h \
@@ -104,7 +104,7 @@ CMakeFiles/nnue_engine.dir/nnue.cpp.o: \
  /usr/include/c++/16/bits/uses_allocator.h \
  /usr/include/c++/16/bits/uses_allocator_args.h /usr/include/c++/16/tuple \
  /usr/include/c++/16/bits/invoke.h \
- /home/sid/Documents/GitHub/self-learning-chess/cpp_engine/chess.hpp \
+ /home/sid/Documents/GitHub/G-ForceZero/cpp_engine/chess.hpp \
  /usr/include/c++/16/functional /usr/include/c++/16/bits/refwrap.h \
  /usr/include/c++/16/bits/std_function.h /usr/include/c++/16/typeinfo \
  /usr/include/c++/16/bits/functexcept.h /usr/include/c++/16/unordered_map \
