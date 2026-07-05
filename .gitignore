@@ -4,3 +4,5 @@ cpp_engine/lichess_db_standard_rated_2017-02.pgn
 cpp_engine/gforce
 /cpp_engine/CMakeFiles
 cpp_engine/lichess_2017_training.epd
+cpp_engine/lichess_db_standard_rated_2019-01.pgn
+cpp_engine/wdl_dataset.epd

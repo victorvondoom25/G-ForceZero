@@ -71,13 +71,18 @@ class StreamingEPDDataset(IterableDataset):
             return None
         fen = parts[0].replace(' c9 ', '').strip()
         try:
-            cp = float(parts[1])
+            val_str = parts[1]
+            if val_str in ["1.0", "0.5", "0.0"]:
+                prob = float(val_str)
+            else:
+                cp = float(val_str)
+                prob = 1.0 / (1.0 + np.exp(-0.003 * cp))
         except ValueError:
             return None
+        
         w_feat, b_feat = fen_to_halfkp(fen)
         if w_feat is None:
             return None
-        prob = 1.0 / (1.0 + np.exp(-0.003 * cp))
         return w_feat, b_feat, float(prob)
 
     def make_tensors(self, w_feat, b_feat, prob):
@@ -172,41 +177,48 @@ def train(dataset_file, epochs=2, num_workers=0):  # 0 = main thread, avoids /de
     print(f"Batches/epoch:   {batches_per_epoch:,}\n")
     print("Starting NNUE training...\n")
 
-    for epoch in range(epochs):
-        model.train()
-        total_loss = 0.0
-        count      = 0
+    try:
+        for epoch in range(epochs):
+            model.train()
+            total_loss = 0.0
+            count      = 0
 
-        for i, (w_batch, b_batch, labels) in enumerate(dataloader):
-            w_batch = w_batch.to(device, non_blocking=True)
-            b_batch = b_batch.to(device, non_blocking=True)
-            labels  = labels.to(device, non_blocking=True)
+            for i, (w_batch, b_batch, labels) in enumerate(dataloader):
+                w_batch = w_batch.to(device, non_blocking=True)
+                b_batch = b_batch.to(device, non_blocking=True)
+                labels  = labels.to(device, non_blocking=True)
 
-            optimizer.zero_grad()
-            outputs = model(w_batch, b_batch)
-            loss    = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+                optimizer.zero_grad()
+                outputs = model(w_batch, b_batch)
+                loss    = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
 
-            total_loss += loss.item()
-            count      += 1
+                total_loss += loss.item()
+                count      += 1
 
-            if (i + 1) % 100 == 0:
-                avg = total_loss / count
-                pct = min(100, (i + 1) * 100 / batches_per_epoch)
-                print(f"Epoch {epoch+1}/{epochs} | Batch {i+1} ({pct:.1f}%) | Loss: {avg:.4f}", flush=True)
+                if (i + 1) % 100 == 0:
+                    avg = total_loss / count
+                    pct = min(100, (i + 1) * 100 / batches_per_epoch)
+                    print(f"Epoch {epoch+1}/{epochs} | Batch {i+1} ({pct:.1f}%) | Loss: {avg:.4f}", flush=True)
 
-        avg_loss = total_loss / max(count, 1)
-        scheduler.step(avg_loss)
-        print(f"\n--- Epoch {epoch+1} done. Avg Loss: {avg_loss:.4f} ---")
+            avg_loss = total_loss / max(count, 1)
+            scheduler.step(avg_loss)
+            print(f"\n--- Epoch {epoch+1} done. Avg Loss: {avg_loss:.4f} ---")
 
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            torch.save(model.state_dict(), "best_model.pth")
-            export_quantized_weights(model, "nnue_weights.bin")
-            print(f"✅ New best! Saved nnue_weights.bin (loss={best_loss:.4f})\n")
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                torch.save(model.state_dict(), "best_model.pth")
+                export_quantized_weights(model, "nnue_weights.bin")
+                print(f"✅ New best! Saved nnue_weights.bin (loss={best_loss:.4f})\n")
 
-    print(f"\nTraining complete. Best loss: {best_loss:.4f}")
+        print(f"\nTraining complete. Best loss: {best_loss:.4f}")
+        
+    except KeyboardInterrupt:
+        print("\n\n⚠️ Training interrupted by user!")
+        print("Saving current progress before exiting...")
+        export_quantized_weights(model, "nnue_weights.bin")
+        print("✅ Weights saved successfully. You can now use nnue_weights.bin in your engine!")
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":

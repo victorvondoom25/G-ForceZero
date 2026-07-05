@@ -122,6 +122,15 @@ bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& t
 
 int num_threads = 1;
 
+// ─── Tunable Search Parameters ────────────────────────────────────────────────
+int opt_rfp_margin = 80;
+int opt_nmp_base = 3;
+int opt_nmp_depth_div = 6;
+int opt_nmp_eval_div = 200;
+int opt_lmr_mult = 225; // 2.25 * 100
+int opt_fp_margin_base = 100;
+int opt_fp_margin_mult = 60;
+
 // ─── Search State ─────────────────────────────────────────────────────────────
 Move  killer_moves[MAX_PLY][2];
 Move  counter_moves[64][64]; // [from][to] → killer response
@@ -622,10 +631,8 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     if (!in_check) static_eval = evaluate(board, acc);
 
     // Reverse futility pruning (static null-move pruning)
-    // If our position is so good that even giving away margin still beats beta, prune
-    const int RFP_MARGIN = 80;
     if (!is_pv && !in_check && depth <= 8 && ply > 0) {
-        if (static_eval - RFP_MARGIN * depth >= beta) {
+        if (static_eval - opt_rfp_margin * depth >= beta) {
             return static_eval;
         }
     }
@@ -637,7 +644,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                           board.pieces(PieceType::ROOK).count() +
                           board.pieces(PieceType::QUEEN).count() > 0;
         if (has_pieces && static_eval >= beta) {
-            int R = 3 + depth / 6 + std::min(3, (static_eval - beta) / 200);
+            int R = opt_nmp_base + depth / opt_nmp_depth_div + std::min(3, (static_eval - beta) / opt_nmp_eval_div);
             board.makeNullMove();
             int null_score = -negamax(board, depth - 1 - R, -beta, -beta + 1, ply + 1, false, acc, Move::NULL_MOVE);
             board.unmakeNullMove();
@@ -670,7 +677,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     int  move_count   = 0;
 
     // Futility pruning margins
-    const int FP_MARGIN[9] = {0, 100, 160, 220, 280, 340, 400, 460, 520};
+    int fp_margin = opt_fp_margin_base + (depth - 1) * opt_fp_margin_mult;
 
     for (const auto& move : moves) {
         bool is_capture  = board.isCapture(move) || move.typeOf() == Move::ENPASSANT;
@@ -692,7 +699,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         if (!is_root && !in_check && !gives_check && !is_capture && !is_promo
             && depth <= 8 && move_count > 1)
         {
-            if (static_eval + FP_MARGIN[depth] <= alpha) {
+            if (static_eval + fp_margin <= alpha) {
                 board.unmakeMove(move);
                 continue;
             }
@@ -713,7 +720,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                           && !in_check && !gives_check;
             int R = 0;
             if (do_lmr) {
-                R = 1 + static_cast<int>(std::log(depth) * std::log(move_count) / 2.25);
+                R = 1 + static_cast<int>(std::log(depth) * std::log(move_count) * 100.0 / opt_lmr_mult);
                 R = std::min(R, depth - 2);
                 R = std::max(R, 1);
                 // Don't reduce PV nodes or history-backed moves as much
@@ -936,12 +943,33 @@ int main() {
                       << "id author Siddharth\n"
                       << "option name Hash type spin default 128 min 1 max 1024\n"
                       << "option name Threads type spin default 1 min 1 max 64\n"
+                      << "option name RFP_Margin type spin default 80 min 10 max 200\n"
+                      << "option name NMP_Base type spin default 3 min 1 max 10\n"
+                      << "option name NMP_Depth_Div type spin default 6 min 1 max 15\n"
+                      << "option name NMP_Eval_Div type spin default 200 min 50 max 500\n"
+                      << "option name LMR_Mult type spin default 225 min 50 max 500\n"
+                      << "option name FP_Margin_Base type spin default 100 min 10 max 300\n"
+                      << "option name FP_Margin_Mult type spin default 60 min 10 max 200\n"
                       << "uciok\n";
         } else if (command == "setoption") {
             std::string name, name_val, value, val_val;
             ss >> name >> name_val >> value >> val_val;
             if (name_val == "Threads") {
                 num_threads = std::max(1, std::min(64, std::stoi(val_val)));
+            } else if (name_val == "RFP_Margin") {
+                opt_rfp_margin = std::stoi(val_val);
+            } else if (name_val == "NMP_Base") {
+                opt_nmp_base = std::stoi(val_val);
+            } else if (name_val == "NMP_Depth_Div") {
+                opt_nmp_depth_div = std::stoi(val_val);
+            } else if (name_val == "NMP_Eval_Div") {
+                opt_nmp_eval_div = std::stoi(val_val);
+            } else if (name_val == "LMR_Mult") {
+                opt_lmr_mult = std::stoi(val_val);
+            } else if (name_val == "FP_Margin_Base") {
+                opt_fp_margin_base = std::stoi(val_val);
+            } else if (name_val == "FP_Margin_Mult") {
+                opt_fp_margin_mult = std::stoi(val_val);
             }
         } else if (command == "isready") {
             std::cout << "readyok\n";
