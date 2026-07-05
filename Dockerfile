@@ -35,9 +35,9 @@ RUN pip3 install -r requirements.txt
 RUN pip3 install Flask
 
 # Copy our custom Render setup files into the bot directory
-COPY G-ForceZero/render/config.yml /app/lichess-bot/config.yml
-COPY G-ForceZero/render/keep_alive.py /app/lichess-bot/keep_alive.py
-COPY G-ForceZero/render/start.sh /app/lichess-bot/start.sh
+RUN cp /app/G-ForceZero/render/config.yml /app/lichess-bot/config.yml
+RUN cp /app/G-ForceZero/render/keep_alive.py /app/lichess-bot/keep_alive.py
+RUN cp /app/G-ForceZero/render/start.sh /app/lichess-bot/start.sh
 
 # Make start script executable
 RUN chmod +x /app/lichess-bot/start.sh
