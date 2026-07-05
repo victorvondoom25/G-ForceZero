@@ -11,6 +11,10 @@ engine:
 
 abort_time: 20
 fake_think_time: false
+
+greeting:
+  decline: "Hello! I am a custom cloud-hosted C++ engine running on limited hardware. To prevent lagging out, I can only accept games with at least 3 minutes on the clock and a +2 second increment (e.g., 3+2, 5+5, 10+10). Please challenge me again with an increment!"
+
 challenge:
   concurrency: 1
   sort_by: "best"
@@ -19,16 +23,27 @@ challenge:
   max_increment: 180
   max_base: 315360000
   max_days: 14
-  min_increment: 0
-  min_base: 0
+  min_increment: 2
+  min_base: 180
   min_days: 0
   variants:
     - standard
   time_controls:
-    - bullet
     - blitz
     - rapid
     - classical
   modes:
     - casual
     - rated
+
+matchmaking:
+  allow_matchmaking: true
+  challenge_initial_time:
+    - 180
+    - 300
+    - 600
+  challenge_increment:
+    - 2
+    - 3
+    - 5
+    - 10
