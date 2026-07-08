@@ -14,10 +14,14 @@ import torch.optim as optim
 from torch.utils.data import IterableDataset, DataLoader
 import chess
 import numpy as np
+import torch.multiprocessing as mp
 import random
 import sys
 import os
 import struct
+
+# Fix PyTorch DataLoader shared memory (/dev/shm) crash
+mp.set_sharing_strategy('file_system')
 
 NUM_FEATURES = 40960  # 64 (king sq) * 10 (piece types) * 64 (piece sq)
 HIDDEN_SIZE  = 256
@@ -147,12 +151,7 @@ class StreamingEPDDataset(IterableDataset):
             return None
         return w_feat, b_feat, float(prob)
 
-    def make_tensors(self, w_feat, b_feat, prob):
-        w_t = torch.zeros(NUM_FEATURES, dtype=torch.float32)
-        b_t = torch.zeros(NUM_FEATURES, dtype=torch.float32)
-        if w_feat: w_t[w_feat] = 1.0
-        if b_feat: b_t[b_feat] = 1.0
-        return w_t, b_t, torch.tensor([prob], dtype=torch.float32)
+    # Removed make_tensors to prevent massive file descriptor allocations
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -176,12 +175,22 @@ class StreamingEPDDataset(IterableDataset):
                 if len(buffer) >= self.shuffle_buffer:
                     random.shuffle(buffer)
                     for item in buffer:
-                        yield self.make_tensors(*item)  # convert to dense only here
+                        yield item
                     buffer = []
 
         random.shuffle(buffer)
         for item in buffer:
-            yield self.make_tensors(*item)
+            yield item
+
+def custom_collate(batch):
+    w_batch = torch.zeros(len(batch), NUM_FEATURES, dtype=torch.float32)
+    b_batch = torch.zeros(len(batch), NUM_FEATURES, dtype=torch.float32)
+    labels = torch.zeros(len(batch), 1, dtype=torch.float32)
+    for i, (w_feat, b_feat, prob) in enumerate(batch):
+        if w_feat: w_batch[i, w_feat] = 1.0
+        if b_feat: b_batch[i, b_feat] = 1.0
+        labels[i, 0] = prob
+    return w_batch, b_batch, labels
 
 # ─── Network ──────────────────────────────────────────────────────────────────
 class HalfKPNet(nn.Module):
@@ -210,7 +219,7 @@ def export_quantized_weights(model, filename):
     print(f"Quantized NNUE weights exported to {filename}")
 
 # ─── Training ─────────────────────────────────────────────────────────────────
-def train(dataset_file, epochs=2, num_workers=4):
+def train(dataset_file, epochs=2, num_workers=0):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Dataset: {dataset_file}")
     print(f"Device:  {device}" + (f" ({torch.cuda.get_device_name(0)})" if device.type == 'cuda' else ''))
@@ -221,6 +230,7 @@ def train(dataset_file, epochs=2, num_workers=4):
     pin = False  # pin_memory doubles RAM usage for large batches — not worth it
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, num_workers=num_workers,
                             pin_memory=pin,
+                            collate_fn=custom_collate,
                             prefetch_factor=2 if num_workers > 0 else None)
 
     model = HalfKPNet().to(device)
