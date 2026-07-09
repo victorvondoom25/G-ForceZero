@@ -234,8 +234,13 @@ def train(dataset_file, epochs=2, num_workers=0):
                             prefetch_factor=2 if num_workers > 0 else None)
 
     model = HalfKPNet().to(device)
-    nn.init.zeros_(model.fc1.bias)
-    nn.init.zeros_(model.fc2.bias)
+    if os.path.exists("best_model.pth"):
+        print("Loading existing best_model.pth to resume training...")
+        model.load_state_dict(torch.load("best_model.pth", map_location=device, weights_only=True))
+    else:
+        print("No existing best_model.pth found, initializing random weights...")
+        nn.init.zeros_(model.fc1.bias)
+        nn.init.zeros_(model.fc2.bias)
 
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
