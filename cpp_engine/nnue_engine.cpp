@@ -34,6 +34,7 @@
 #include <cassert>
 #include "chess.hpp"
 #include "nnue.hpp"
+#include "polyglot.hpp"
 
 using namespace chess;
 
@@ -1032,9 +1033,16 @@ int main() {
                 target_ms = 5000; // Analysis mode
             }
 
-            chess::Move best = search_best_move(board, target_ms);
-            std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
-            std::cout.flush();
+            chess::Move best = get_book_move(board, "book.bin");
+            if (best != chess::Move::NULL_MOVE) {
+                std::cout << "info string Playing from PolyGlot opening book\n";
+                std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
+                std::cout.flush();
+            } else {
+                best = search_best_move(board, target_ms);
+                std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
+                std::cout.flush();
+            }
         } else if (command == "quit") {
             break;
         }
