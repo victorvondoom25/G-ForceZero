@@ -560,10 +560,11 @@ void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_M
 // ─── Piece-Square Tables (PeSTO style, tapered eval) ─────────────────────────
 int evaluate(const Board& board, const nnue::Accumulator& acc) {
     int classical = classical_evaluate(board);
-    int nnue_score = nnue::evaluate(acc, board.sideToMove());
+    // int nnue_score = nnue::evaluate(acc, board.sideToMove());
     
-    // Combine both heuristics for maximum strength
-    return (classical + nnue_score) / 2;
+    // The lightly trained NNUE outputs garbage and overrides the classical logic.
+    // Return pure classical for mathematically solid chess.
+    return classical;
 }
 
 
