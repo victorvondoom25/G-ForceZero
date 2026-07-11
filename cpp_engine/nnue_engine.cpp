@@ -561,7 +561,9 @@ void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_M
 int evaluate(const Board& board, const nnue::Accumulator& acc) {
     int classical = classical_evaluate(board);
     int nnue_score = nnue::evaluate(acc, board.sideToMove());
-    return classical;
+    
+    // Combine both heuristics for maximum strength
+    return (classical + nnue_score) / 2;
 }
 
 
