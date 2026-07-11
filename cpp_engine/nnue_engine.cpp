@@ -102,7 +102,7 @@ Move probe_tt_move(uint64_t hash) {
     return Move::NULL_MOVE;
 }
 
-bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& tt_move) {
+bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& tt_move, int& tt_depth, TTEntry::Flag& tt_flag, int& tt_eval) {
     int base = (hash & (TT_MASK >> 1)) * 2;
     uint16_t key = static_cast<uint16_t>(hash >> 48);
     for (int i = 0; i < 2; ++i) {
@@ -112,6 +112,11 @@ bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& t
         
         if (tte.key != key || tte.flag == TTEntry::NONE) continue;
         if (tt_move == Move::NULL_MOVE && tte.move) tt_move = Move(tte.move);
+        
+        tt_depth = tte.depth;
+        tt_flag = static_cast<TTEntry::Flag>(tte.flag);
+        tt_eval = tte.score;
+        
         if (tte.depth >= depth) {
             if (tte.flag == TTEntry::EXACT) { score = tte.score; return true; }
             if (tte.flag == TTEntry::LOWER && tte.score >= beta)  { score = beta;  return true; }
@@ -592,7 +597,7 @@ int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply
 }
 
 // ─── Negamax ─────────────────────────────────────────────────────────────────
-int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_null, nnue::Accumulator acc, Move prev_move = Move::NULL_MOVE) {
+int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_null, nnue::Accumulator acc, Move prev_move = Move::NULL_MOVE, Move excluded_move = Move::NULL_MOVE) {
     if ((nodes.load(std::memory_order_relaxed) & 4095) == 0 &&
         std::chrono::high_resolution_clock::now() > end_time)
         abort_search = true;
@@ -609,10 +614,14 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     __builtin_prefetch(&TT[(hash & (TT_MASK >> 1)) * 2]);
     
     Move tt_move = Move::NULL_MOVE;
+    int tt_depth = 0;
+    TTEntry::Flag tt_flag = TTEntry::NONE;
+    int tt_eval = 0;
 
     // TT probe
     int tt_score = 0;
-    if (!is_root && probe_tt(hash, depth, alpha, beta, tt_score, tt_move)) {
+    bool tt_hit = probe_tt(hash, depth, alpha, beta, tt_score, tt_move, tt_depth, tt_flag, tt_eval);
+    if (tt_hit && excluded_move == Move::NULL_MOVE && !is_root) {
         return tt_score;
     }
     if (tt_move == Move::NULL_MOVE) tt_move = probe_tt_move(hash);
@@ -665,6 +674,21 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         negamax(board, depth - 4, alpha, beta, ply, false, acc, prev_move);
         tt_move = probe_tt_move(hash);
     }
+    
+    // Singular Extensions
+    bool tt_is_singular = false;
+    if (!is_root && depth >= 8 && tt_move != Move::NULL_MOVE && 
+        excluded_move == Move::NULL_MOVE && 
+        tt_depth >= depth - 3 && 
+        tt_flag != TTEntry::UPPER && 
+        std::abs(tt_eval) < MATE_SCORE - 1000) 
+    {
+        int singular_beta = tt_eval - depth;
+        int singular_score = -negamax(board, depth / 2, singular_beta - 1, singular_beta, ply, false, acc, prev_move, tt_move);
+        if (singular_score < singular_beta) {
+            tt_is_singular = true;
+        }
+    }
 
     Movelist moves;
     movegen::legalmoves(moves, board);
@@ -683,6 +707,8 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     int fp_margin = opt_fp_margin_base + (depth - 1) * opt_fp_margin_mult;
 
     for (const auto& move : moves) {
+        if (move == excluded_move) continue;
+
         bool is_capture  = board.isCapture(move) || move.typeOf() == Move::ENPASSANT;
         bool is_promo    = move.typeOf() == Move::PROMOTION;
 
@@ -697,6 +723,9 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         }
         move_count++;
         bool gives_check = board.inCheck();
+
+        int extension = 0;
+        if (tt_is_singular && move == tt_move) extension = 1;
 
         // Futility pruning (forward): skip quiet moves that can't improve alpha
         if (!is_root && !in_check && !gives_check && !is_capture && !is_promo
@@ -716,7 +745,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         int score;
         if (move_count == 1) {
             // PV node: full window
-            score = -negamax(board, depth - 1, -beta, -alpha, ply + 1, true, next_acc, move);
+            score = -negamax(board, depth - 1 + extension, -beta, -alpha, ply + 1, true, next_acc, move);
         } else {
             // LMR: reduce late quiet moves
             bool do_lmr = move_count > 3 && depth >= 3 && !is_capture && !is_promo
@@ -731,15 +760,15 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
             }
 
             // Null-window search
-            score = -negamax(board, depth - 1 - R, -alpha - 1, -alpha, ply + 1, true, next_acc, move);
+            score = -negamax(board, depth - 1 - R + extension, -alpha - 1, -alpha, ply + 1, true, next_acc, move);
 
             // Full-depth re-search if LMR raised alpha or window failed
             if (score > alpha && (R > 0 || (!is_pv && score < beta))) {
-                score = -negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1, true, next_acc, move);
+                score = -negamax(board, depth - 1 + extension, -alpha - 1, -alpha, ply + 1, true, next_acc, move);
             }
             // Full-window re-search for PV update
             if (score > alpha && score < beta) {
-                score = -negamax(board, depth - 1, -beta, -alpha, ply + 1, true, next_acc, move);
+                score = -negamax(board, depth - 1 + extension, -beta, -alpha, ply + 1, true, next_acc, move);
             }
         }
 
