@@ -76,7 +76,9 @@ void tt_clear() {
 
 uint8_t current_age = 0;
 
-void write_tt(uint64_t hash, Move move, int depth, int score, TTEntry::Flag flag) {
+void write_tt(uint64_t hash, Move move, int depth, int score, TTEntry::Flag flag, int ply) {
+    if (score >= MATE_SCORE - MAX_PLY) score += ply;
+    else if (score <= -MATE_SCORE + MAX_PLY) score -= ply;
     int base = (hash & (TT_MASK >> 1)) * 2;
     uint16_t key = static_cast<uint16_t>(hash >> 48);
 
@@ -111,7 +113,7 @@ Move probe_tt_move(uint64_t hash) {
     return Move::NULL_MOVE;
 }
 
-bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& tt_move, int& tt_depth, TTEntry::Flag& tt_flag, int& tt_eval) {
+bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int ply, int& score, Move& tt_move, int& tt_depth, TTEntry::Flag& tt_flag, int& tt_eval) {
     int base = (hash & (TT_MASK >> 1)) * 2;
     uint16_t key = static_cast<uint16_t>(hash >> 48);
     for (int i = 0; i < 2; ++i) {
@@ -126,11 +128,13 @@ bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& t
         tt_depth = tte.depth;
         tt_flag = static_cast<TTEntry::Flag>(flag);
         tt_eval = tte.score;
+        if (tt_eval >= MATE_SCORE - MAX_PLY) tt_eval -= ply;
+        else if (tt_eval <= -MATE_SCORE + MAX_PLY) tt_eval += ply;
         
         if (tte.depth >= depth) {
-            if (flag == TTEntry::EXACT) { score = tte.score; return true; }
-            if (flag == TTEntry::LOWER && tte.score >= beta)  { score = beta;  return true; }
-            if (flag == TTEntry::UPPER && tte.score <= alpha) { score = alpha; return true; }
+            if (flag == TTEntry::EXACT) { score = tt_eval; return true; }
+            if (flag == TTEntry::LOWER && tt_eval >= beta)  { score = beta;  return true; }
+            if (flag == TTEntry::UPPER && tt_eval <= alpha) { score = alpha; return true; }
         }
     }
     return false;
@@ -767,7 +771,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 
     // TT probe
     int tt_score = 0;
-    bool tt_hit = probe_tt(hash, depth, alpha, beta, tt_score, tt_move, tt_depth, tt_flag, tt_eval);
+    bool tt_hit = probe_tt(hash, depth, alpha, beta, ply, tt_score, tt_move, tt_depth, tt_flag, tt_eval);
     if (tt_hit && excluded_move == Move::NULL_MOVE && !is_root) {
         return tt_score;
     }
@@ -914,8 +918,6 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         int extension = 0;
         if (ply < MAX_PLY * 2 / 3) {
             if (tt_is_singular && move == tt_move) extension = 1;
-            // Give check extension for moves that put opponent in check
-            else if (gives_check && depth <= 3) extension = 1;
         }
 
         // Futility pruning (forward): skip quiet moves that can't improve alpha
@@ -1066,7 +1068,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         if (best_score <= original_alpha) flag = TTEntry::UPPER;
         else if (best_score >= beta)      flag = TTEntry::LOWER;
         else                              flag = TTEntry::EXACT;
-        write_tt(hash, best_move, depth, best_score, flag);
+        write_tt(hash, best_move, depth, best_score, flag, ply);
     }
 
     return best_score;
