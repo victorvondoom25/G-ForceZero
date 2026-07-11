@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <thread>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include <cstring>
 #include <cmath>
 #include <cassert>
@@ -529,13 +531,23 @@ int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move
 
 void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_MOVE, int ply = -1, Move prev_move = Move::NULL_MOVE) {
     int n = moves.size();
-    // Score all moves once, then sort (faster than insertion sort with per-compare scoring)
-    std::vector<std::pair<int, int>> scored(n);
-    for (int i = 0; i < n; ++i)
-        scored[i] = {score_move(board, moves[i], tt_move, ply, prev_move), i};
-    std::sort(scored.begin(), scored.end(), [](const auto& a, const auto& b){ return a.first > b.first; });
-    Movelist tmp = moves;
-    for (int i = 0; i < n; ++i) moves[i] = tmp[scored[i].second];
+    if (n <= 1) return;
+    int scores[256];
+    for (int i = 0; i < n; ++i) {
+        scores[i] = score_move(board, moves[i], tt_move, ply, prev_move);
+    }
+    for (int i = 0; i < n - 1; ++i) {
+        int best = i;
+        for (int j = i + 1; j < n; ++j) {
+            if (scores[j] > scores[best]) best = j;
+        }
+        if (best != i) {
+            std::swap(scores[i], scores[best]);
+            Move tmp = moves[i];
+            moves[i] = moves[best];
+            moves[best] = tmp;
+        }
+    }
 }
 
 // ─── Evaluation ───────────────────────────────────────────────────────────────
@@ -854,6 +866,76 @@ void search_worker(Board board, int target_ms) {
     }
 }
 
+// ─── Thread Pool ──────────────────────────────────────────────────────────────
+std::vector<std::thread> helper_threads;
+std::mutex pool_mutex;
+std::condition_variable pool_cv_threads;
+std::condition_variable pool_cv_main;
+bool pool_terminate = false;
+int active_helpers = 0;
+Board pool_board;
+int pool_target_ms = 0;
+uint64_t pool_job_id = 0;
+
+void helper_thread_loop(int thread_id) {
+    uint64_t my_job_id = 0;
+    while (true) {
+        std::unique_lock<std::mutex> lock(pool_mutex);
+        pool_cv_threads.wait(lock, [&]{ return my_job_id != pool_job_id || pool_terminate; });
+        if (pool_terminate) break;
+        my_job_id = pool_job_id;
+        
+        Board b = pool_board;
+        int t = pool_target_ms;
+        lock.unlock();
+        
+        search_worker(b, t);
+        
+        lock.lock();
+        active_helpers--;
+        if (active_helpers == 0) {
+            pool_cv_main.notify_one();
+        }
+    }
+}
+
+void stop_thread_pool() {
+    {
+        std::unique_lock<std::mutex> lock(pool_mutex);
+        pool_terminate = true;
+    }
+    pool_cv_threads.notify_all();
+    for (auto& t : helper_threads) {
+        if (t.joinable()) t.join();
+    }
+    helper_threads.clear();
+}
+
+void resize_thread_pool(int new_threads) {
+    stop_thread_pool();
+    pool_terminate = false;
+    num_threads = new_threads;
+    for (int i = 1; i < num_threads; ++i) {
+        helper_threads.emplace_back(helper_thread_loop, i);
+    }
+}
+
+void start_helper_threads(const Board& b, int t) {
+    if (num_threads <= 1) return;
+    std::unique_lock<std::mutex> lock(pool_mutex);
+    pool_board = b;
+    pool_target_ms = t;
+    active_helpers = num_threads - 1;
+    pool_job_id++;
+    pool_cv_threads.notify_all();
+}
+
+void wait_helper_threads() {
+    if (num_threads <= 1) return;
+    std::unique_lock<std::mutex> lock(pool_mutex);
+    pool_cv_main.wait(lock, []{ return active_helpers == 0; });
+}
+
 // ─── Iterative Deepening + Aspiration Windows ─────────────────────────────────
 Move search_best_move(Board& board, int target_ms) {
     Move best_move     = Move::NULL_MOVE;
@@ -876,10 +958,7 @@ Move search_best_move(Board& board, int target_ms) {
 
     int previous_score = 0;
 
-    std::vector<std::thread> workers;
-    for (int i = 1; i < num_threads; ++i) {
-        workers.emplace_back(search_worker, board, target_ms);
-    }
+    start_helper_threads(board, target_ms);
 
     for (int depth = 1; depth <= 64; ++depth) {
         int alpha, beta;
@@ -949,9 +1028,7 @@ Move search_best_move(Board& board, int target_ms) {
     }
 
     // Wait for helper threads
-    for (auto& t : workers) {
-        if (t.joinable()) t.join();
-    }
+    wait_helper_threads();
 
     return best_move;
 }
@@ -988,7 +1065,7 @@ int main() {
             std::string name, name_val, value, val_val;
             ss >> name >> name_val >> value >> val_val;
             if (name_val == "Threads") {
-                num_threads = std::max(1, std::min(64, std::stoi(val_val)));
+                resize_thread_pool(std::max(1, std::min(64, std::stoi(val_val))));
             } else if (name_val == "RFP_Margin") {
                 opt_rfp_margin = std::stoi(val_val);
             } else if (name_val == "NMP_Base") {
@@ -1077,5 +1154,6 @@ int main() {
             break;
         }
     }
+    stop_thread_pool();
     return 0;
 }
