@@ -684,7 +684,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         std::abs(tt_eval) < MATE_SCORE - 1000) 
     {
         int singular_beta = tt_eval - depth;
-        int singular_score = -negamax(board, depth / 2, singular_beta - 1, singular_beta, ply, false, acc, prev_move, tt_move);
+        int singular_score = negamax(board, depth / 2, singular_beta - 1, singular_beta, ply, false, acc, prev_move, tt_move);
         if (singular_score < singular_beta) {
             tt_is_singular = true;
         }
@@ -800,7 +800,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         }
     }
 
-    if (!abort_search) {
+    if (!abort_search && excluded_move == Move::NULL_MOVE) {
         TTEntry::Flag flag;
         if (best_score <= original_alpha) flag = TTEntry::UPPER;
         else if (best_score >= beta)      flag = TTEntry::LOWER;
