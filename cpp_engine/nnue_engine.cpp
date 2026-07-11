@@ -54,7 +54,7 @@ const int MOVE_OVERHEAD = 20; // ms overhead per move
 
 // ─── Piece values ─────────────────────────────────────────────────────────────
 // P=100, N=320, B=330, R=500, Q=900, K=20000
-const int piece_values[6] = {100, 320, 330, 500, 900, 20000};
+const int piece_values[6] = {100, 400, 420, 650, 1200, 20000};
 
 // ─── Transposition Table ─────────────────────────────────────────────────────
 struct TTEntry {
@@ -600,28 +600,35 @@ int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 
-    int stand_pat = evaluate(board, acc);
-    if (stand_pat >= beta) return beta;
+    bool in_check = board.inCheck();
+    int stand_pat = -MATE_SCORE + ply; // Default for in check
 
-    // Delta pruning (skip if we can't possibly improve alpha even with best capture)
-    const int DELTA = 1000; // queen + some margin
-    if (stand_pat + DELTA < alpha) return alpha;
-
-    if (stand_pat > alpha) alpha = stand_pat;
+    if (!in_check) {
+        stand_pat = evaluate(board, acc);
+        if (stand_pat >= beta) return beta;
+        if (stand_pat + 1000 < alpha) return alpha; // Delta pruning
+        if (stand_pat > alpha) alpha = stand_pat;
+    }
 
     Movelist moves;
-    movegen::legalmoves<movegen::MoveGenType::CAPTURE>(moves, board);
+    if (in_check) {
+        movegen::legalmoves<movegen::MoveGenType::ALL>(moves, board);
+    } else {
+        movegen::legalmoves<movegen::MoveGenType::CAPTURE>(moves, board);
+    }
     sort_moves(board, moves);
 
     for (const auto& move : moves) {
-        // Skip losing captures (SEE < 0)
-        if (!see_ge(board, move, 0)) continue;
+        if (!in_check) {
+            // Skip losing captures (SEE < 0)
+            if (!see_ge(board, move, 0)) continue;
 
-        // Per-move delta pruning
-        int capt_val = (move.typeOf() == Move::ENPASSANT) ? piece_values[0] :
-                       (board.at(move.to()) != Piece::NONE) ? piece_values[static_cast<int>(board.at(move.to()).type())] : 0;
-        if (move.typeOf() == Move::PROMOTION) capt_val += piece_values[4];
-        if (stand_pat + capt_val + 200 < alpha) continue;
+            // Per-move delta pruning
+            int capt_val = (move.typeOf() == Move::ENPASSANT) ? piece_values[0] :
+                           (board.at(move.to()) != Piece::NONE) ? piece_values[static_cast<int>(board.at(move.to()).type())] : 0;
+            if (move.typeOf() == Move::PROMOTION) capt_val += piece_values[4];
+            if (stand_pat + capt_val + 200 < alpha) continue;
+        }
 
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
@@ -774,14 +781,19 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 
         // ── Pre-makeMove pruning ─────────────────────────────────────────────
         if (!is_root && !in_check && !is_capture && !is_promo && move_count > 1) {
+            // Protect killers and moves with good history from FP and LMP
+            bool is_killer = (ply < MAX_PLY && (killer_moves[ply][0] == move || killer_moves[ply][1] == move));
+            int hist = history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()];
+            bool protect = is_killer || hist > 0;
+
             // SEE-based quiet move pruning at low depth (MUST be before makeMove)
-            if (depth <= 6 && !see_ge(board, move, -50 * depth)) continue;
+            if (!is_pv && depth <= 6 && !protect && !see_ge(board, move, -50 * depth)) continue;
 
             // Futility pruning: skip quiet moves that can't improve alpha
-            if (depth <= 8 && static_eval + fp_margin <= alpha) continue;
+            if (!is_pv && depth <= 6 && !protect && static_eval + fp_margin <= alpha) continue;
 
             // Late move pruning: skip very late quiet moves at low depth
-            if (!is_pv && depth <= 4 && move_count > 4 + depth * depth) continue;
+            if (!is_pv && depth <= 4 && !protect && move_count > 4 + depth * depth) continue;
         }
         // ────────────────────────────────────────────────────────────────────
 
@@ -1074,6 +1086,15 @@ int main() {
                       << "option name FP_Margin_Mult type spin default 60 min 10 max 200\n"
                       << "option name Contempt type spin default 15 min 0 max 100\n"
                       << "uciok\n";
+        } else if (command == "eval") {
+            int classical = classical_evaluate(board);
+            nnue::Accumulator acc;
+            nnue::refresh_accumulator(board, Color::WHITE, acc);
+            nnue::refresh_accumulator(board, Color::BLACK, acc);
+            int nnue_score = nnue::evaluate(acc, board.sideToMove());
+            std::cout << "Classical Eval: " << classical << "\n";
+            std::cout << "NNUE Eval: " << nnue_score << "\n";
+            std::cout << "Total Eval: " << (classical + nnue_score) / 2 << "\n";
         } else if (command == "setoption") {
             std::string name, name_val, value, val_val;
             ss >> name >> name_val >> value >> val_val;
