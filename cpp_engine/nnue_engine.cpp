@@ -433,7 +433,7 @@ int classical_evaluate(const Board& board) {
                 if (f > 0) front |= 1ULL << (rr * 8 + f - 1);
                 if (f < 7) front |= 1ULL << (rr * 8 + f + 1);
             }
-            if (!(front & b_pawns.getBits())) score += 10 + 5 * (r - 1) * (r - 1);
+            if (!(front & b_pawns.getBits())) score += 10 + 20 * (r - 1) * (r - 1);
         }
     }
     {
@@ -447,7 +447,7 @@ int classical_evaluate(const Board& board) {
                 if (f > 0) front |= 1ULL << (rr * 8 + f - 1);
                 if (f < 7) front |= 1ULL << (rr * 8 + f + 1);
             }
-            if (!(front & w_pawns.getBits())) score -= 10 + 5 * (6 - r) * (6 - r);
+            if (!(front & w_pawns.getBits())) score -= 10 + 20 * (6 - r) * (6 - r);
         }
     }
 
@@ -534,8 +534,10 @@ void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_M
 
 // ─── Evaluation ───────────────────────────────────────────────────────────────
 int evaluate(const Board& board, const nnue::Accumulator& acc) {
-    (void)acc; // Unused for now
-    return classical_evaluate(board);
+    int classical = classical_evaluate(board);
+    int nnue_score = nnue::evaluate(acc, board.sideToMove());
+    // 50% classical, 50% NNUE
+    return (classical + nnue_score) / 2;
 }
 
 // ─── Quiescence Search ────────────────────────────────────────────────────────
@@ -544,7 +546,6 @@ int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply
         std::chrono::high_resolution_clock::now() > end_time)
         abort_search = true;
     if (abort_search) return 0;
-    if (ply >= MAX_PLY - 1) return evaluate(board, acc);
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 
@@ -573,13 +574,13 @@ int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply
 
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
-        // nnue::update_accumulator(board, move, acc, next_acc);
+        nnue::update_accumulator(board, move, acc, next_acc);
 
         board.makeMove(move);
-        // if (piece.type() == chess::PieceType::KING) {
-        //     nnue::refresh_accumulator(board, ~board.sideToMove(), next_acc);
-        //     nnue::refresh_accumulator(board, board.sideToMove(), next_acc);
-        // }
+        if (piece.type() == chess::PieceType::KING) {
+            nnue::refresh_accumulator(board, ~board.sideToMove(), next_acc);
+            nnue::refresh_accumulator(board, board.sideToMove(), next_acc);
+        }
         int score = -quiescence(board, -beta, -alpha, next_acc, ply + 1);
         board.unmakeMove(move);
 
@@ -595,7 +596,6 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         std::chrono::high_resolution_clock::now() > end_time)
         abort_search = true;
     if (abort_search) return 0;
-    if (ply >= MAX_PLY - 1) return evaluate(board, acc);
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 
@@ -619,15 +619,12 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     // Mate distance pruning
     alpha = std::max(alpha, -MATE_SCORE + ply);
     beta  = std::min(beta,   MATE_SCORE - ply);
-    if (board.isGameOver().second == GameResult::DRAW) return 0;
-
-    // Prevent stack overflow and array out of bounds
-    if (ply >= MAX_PLY - 1) return evaluate(board, acc);
+    if (alpha >= beta) return alpha;
 
     bool in_check = board.inCheck();
 
-    // Check extension (bounded to PV nodes to prevent infinite search trees)
-    if (in_check && is_pv) depth++;
+    // Check extension
+    if (in_check) depth++;
 
     if (depth <= 0) return quiescence(board, alpha, beta, acc);
 
@@ -662,6 +659,15 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         }
     }
 
+    // ProbCut
+    if (!is_pv && !in_check && depth >= 5 && std::abs(beta) <= MATE_SCORE - 100) {
+        int rbeta = std::min(MATE_SCORE - 100, beta + 200);
+        int probcut_score = -negamax(board, depth - 4, -rbeta, -rbeta + 1, ply, false, acc, prev_move);
+        if (probcut_score >= rbeta) {
+            return probcut_score;
+        }
+    }
+
     // Internal Iterative Deepening: if no TT move and deep node, search shallower first
     if (!is_pv && tt_move == Move::NULL_MOVE && depth >= 5) {
         negamax(board, depth - 4, alpha, beta, ply, false, acc, prev_move);
@@ -690,13 +696,13 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
-        // nnue::update_accumulator(board, move, acc, next_acc);
+        nnue::update_accumulator(board, move, acc, next_acc);
 
         board.makeMove(move);
-        // if (piece.type() == chess::PieceType::KING) {
-        //     nnue::refresh_accumulator(board, ~board.sideToMove(), next_acc);
-        //     nnue::refresh_accumulator(board, board.sideToMove(), next_acc);
-        // }
+        if (piece.type() == chess::PieceType::KING) {
+            nnue::refresh_accumulator(board, ~board.sideToMove(), next_acc);
+            nnue::refresh_accumulator(board, board.sideToMove(), next_acc);
+        }
         move_count++;
         bool gives_check = board.inCheck();
 
@@ -787,7 +793,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 // ─── Search Worker (Helper Threads) ───────────────────────────────────────────
 void search_worker(Board board, int target_ms) {
     nnue::Accumulator root_acc;
-    // nnue::init_accumulator(board, root_acc);
+    nnue::init_accumulator(board, root_acc);
 
     int previous_score = 0;
     for (int depth = 1; depth <= 64; ++depth) {
@@ -845,7 +851,7 @@ Move search_best_move(Board& board, int target_ms) {
     end_time   = start + std::chrono::milliseconds(std::max(1, target_ms - MOVE_OVERHEAD));
 
     nnue::Accumulator root_acc;
-    // nnue::init_accumulator(board, root_acc);
+    nnue::init_accumulator(board, root_acc);
 
     int previous_score = 0;
 
