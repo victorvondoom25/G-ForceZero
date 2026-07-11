@@ -6,5 +6,5 @@ CXX_DEFINES =
 
 CXX_INCLUDES = 
 
-CXX_FLAGS =  -O3 -march=native -mtune=native -flto -fno-rtti -ffast-math -funroll-loops -O3 -DNDEBUG -std=gnu++17
+CXX_FLAGS =  -O3 -march=native -mtune=native -mavx2 -mfma -mbmi2 -mpopcnt -ffast-math -funroll-loops -flto=auto -fno-rtti -O3 -DNDEBUG -std=gnu++17
 

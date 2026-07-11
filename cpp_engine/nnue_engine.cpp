@@ -69,9 +69,7 @@ const int TT_MASK = TT_SIZE - 1;
 std::atomic<uint64_t>* TT = new std::atomic<uint64_t>[TT_SIZE];
 
 void tt_clear() {
-    for(int i=0; i<TT_SIZE; ++i) {
-        TT[i].store(0, std::memory_order_relaxed);
-    }
+    std::memset(TT, 0, TT_SIZE * sizeof(std::atomic<uint64_t>));
 }
 
 uint8_t current_age = 0;
@@ -469,7 +467,8 @@ int classical_evaluate(const Board& board) {
     // 1. Material + Tapered PST
     for (int pt = 0; pt < 6; ++pt) {
         PieceType pType = PieceType(static_cast<PieceType::underlying>(pt));
-        game_phase += board.pieces(pType).count() * phase_weights[pt];
+        int pc = board.pieces(pType).count();
+        game_phase += pc * phase_weights[pt];
 
         Bitboard wb = board.pieces(pType, Color::WHITE);
         while (wb) {
@@ -522,37 +521,35 @@ int classical_evaluate(const Board& board) {
         if (bc > 1) score += 10 * (bc - 1);
     }
 
-    // 5. Passed pawns
+    // 5. Passed pawns — use bitboard spans instead of loop-built masks
     {
         Bitboard tmp = w_pawns;
         while (tmp) {
-            int sq = tmp.pop();
-            int f = sq % 8, r = sq / 8;
-            uint64_t front = 0;
-            for (int rr = r + 1; rr < 8; ++rr) {
-                front |= 1ULL << (rr * 8 + f);
-                if (f > 0) front |= 1ULL << (rr * 8 + f - 1);
-                if (f < 7) front |= 1ULL << (rr * 8 + f + 1);
-            }
+            int sq  = tmp.pop();
+            int f   = sq % 8, r = sq / 8;
+            // Build forward + adjacent-file mask from rank r+1 to rank 7
+            // Using fill-forward technique: shift up and OR adjacent files
+            uint64_t file_bb = 0x0101010101010101ULL << f;
+            uint64_t adj_bb  = ((f > 0) ? (file_bb >> 1) : 0) | ((f < 7) ? (file_bb << 1) : 0);
+            uint64_t front   = (file_bb | adj_bb) & ~((1ULL << ((r + 1) * 8)) - 1); // mask above rank r
             if (!(front & b_pawns.getBits())) score += 10 + 20 * (r - 1) * (r - 1);
         }
     }
     {
         Bitboard tmp = b_pawns;
         while (tmp) {
-            int sq = tmp.pop();
-            int f = sq % 8, r = sq / 8;
-            uint64_t front = 0;
-            for (int rr = r - 1; rr >= 0; --rr) {
-                front |= 1ULL << (rr * 8 + f);
-                if (f > 0) front |= 1ULL << (rr * 8 + f - 1);
-                if (f < 7) front |= 1ULL << (rr * 8 + f + 1);
-            }
+            int sq  = tmp.pop();
+            int f   = sq % 8, r = sq / 8;
+            uint64_t file_bb = 0x0101010101010101ULL << f;
+            uint64_t adj_bb  = ((f > 0) ? (file_bb >> 1) : 0) | ((f < 7) ? (file_bb << 1) : 0);
+            // Mask below rank r (bits 0..r*8-1)
+            uint64_t front   = (file_bb | adj_bb) & ((1ULL << (r * 8)) - 1);
             if (!(front & w_pawns.getBits())) score -= 10 + 20 * (6 - r) * (6 - r);
         }
     }
 
-    // 6. King safety: pawn shield + attack zone
+    // 6. King safety: pawn shield + attack zone count
+    // Use lightweight attack counting via piece attack tables instead of board.isAttacked()
     {
         auto king_safety = [&](Color us, Color them) -> int {
             int pen = 0;
@@ -568,13 +565,19 @@ int classical_evaluate(const Board& board) {
                     if (!(pawns.getBits() & (1ULL << (shield_rank * 8 + f2)))) pen += 15;
                 }
             }
-            // 3x3 enemy attack zone
-            for (int df = -1; df <= 1; ++df) {
-                for (int dr = -1; dr <= 1; ++dr) {
-                    int f2 = kf + df, r2 = kr + dr;
-                    if (f2 < 0 || f2 > 7 || r2 < 0 || r2 > 7) continue;
-                    if (board.isAttacked(Square(r2 * 8 + f2), them)) pen += 8;
-                }
+            // 3x3 enemy attack zone — count attacker pieces hitting king zone
+            // Use king attacks bitboard to get zone squares, then check with piece attack bitboards
+            Bitboard zone = attacks::king(ksq);
+            zone |= Bitboard(1ULL << ksq.index()); // include king square itself
+            while (zone) {
+                int z = zone.pop();
+                Square zsq(z);
+                // Check if any enemy piece attacks this square (using precomputed attack tables)
+                Bitboard occ = board.occ();
+                if (attacks::pawn(us, zsq) & board.pieces(PieceType::PAWN, them)) pen += 8;
+                if (attacks::knight(zsq)    & board.pieces(PieceType::KNIGHT, them)) pen += 8;
+                if (attacks::bishop(zsq, occ) & (board.pieces(PieceType::BISHOP, them) | board.pieces(PieceType::QUEEN, them))) pen += 8;
+                if (attacks::rook(zsq, occ)   & (board.pieces(PieceType::ROOK, them)   | board.pieces(PieceType::QUEEN, them))) pen += 8;
             }
             return pen;
         };
@@ -741,8 +744,6 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     if ((nodes.load(std::memory_order_relaxed) & 4095) == 0) {
         auto chk_now = std::chrono::high_resolution_clock::now();
         if (chk_now > end_time) {
-            auto elapsed_debug = std::chrono::duration<double>(chk_now - (end_time - std::chrono::milliseconds(30000))).count() * 1000;
-            std::cerr << "ABORT: nodes=" << nodes.load() << " ply=" << ply << " depth=" << depth << "\n";
             abort_search = true;
         }
     }
@@ -854,7 +855,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     
     // Singular Extensions
     bool tt_is_singular = false;
-    if (!is_root && depth >= 8 && tt_move != Move::NULL_MOVE && 
+    if (!is_root && depth >= 6 && tt_move != Move::NULL_MOVE && 
         excluded_move == Move::NULL_MOVE && 
         tt_depth >= depth - 3 && 
         tt_flag != TTEntry::UPPER && 
@@ -902,16 +903,19 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
             quiets_searched[num_quiets++] = move;
         }
 
+        // Detect king move BEFORE copying accumulator to save a wasted 512B copy
+        bool is_king_move = (board.at(move.from()).type() == chess::PieceType::KING);
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
-        nnue::update_accumulator(board, move, acc, next_acc);
+        if (!is_king_move) {
+            nnue::update_accumulator(board, move, acc, next_acc);
+        }
 
         board.makeMove(move);
-        if (piece.type() == chess::PieceType::KING) {
+        if (is_king_move) {
             nnue::refresh_accumulator(board, ~board.sideToMove(), next_acc);
             nnue::refresh_accumulator(board, board.sideToMove(), next_acc);
         }
-        move_count++;
         bool gives_check = board.inCheck();
 
         // Extensions: only apply when not too deep (prevent runaway extension loops)
@@ -1197,12 +1201,13 @@ Move search_best_move(Board& board, int soft_limit, int hard_limit) {
             for (auto& t : f)
                 t >>= 1;
 
-    // Decay cont_hist
-    for (auto& a : cont_hist)
-        for (auto& b2 : a)
-            for (auto& c2 : b2)
-                for (auto& d : c2)
-                    d >>= 1;
+    // Decay cont_hist every search (halve)
+    // Use a single memset-based approach via arithmetic right shift in a tight loop
+    for (int a = 0; a < 12; ++a)
+        for (int b2 = 0; b2 < 64; ++b2)
+            for (int c2 = 0; c2 < 12; ++c2)
+                for (int d = 0; d < 64; ++d)
+                    cont_hist[a][b2][c2][d] >>= 1;
 
     std::fill(&killer_moves[0][0], &killer_moves[0][0] + sizeof(killer_moves) / sizeof(Move), Move::NULL_MOVE);
     std::fill(&pv_length[0], &pv_length[0] + MAX_PLY, 0);
@@ -1224,7 +1229,7 @@ Move search_best_move(Board& board, int soft_limit, int hard_limit) {
         int alpha, beta;
 
         // Progressive aspiration windows
-        const int window = 25;
+        const int window = 30;  // slightly wider to reduce re-searches
         if (depth >= 5) {
             alpha = previous_score - window;
             beta  = previous_score + window;
