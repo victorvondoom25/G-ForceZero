@@ -593,10 +593,16 @@ int evaluate(const Board& board, const nnue::Accumulator& acc) {
 
 // ─── Quiescence Search ────────────────────────────────────────────────────────
 int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply = 0) {
-    if ((nodes.load(std::memory_order_relaxed) & 4095) == 0 &&
-        std::chrono::high_resolution_clock::now() > end_time)
-        abort_search = true;
+    if ((nodes.load(std::memory_order_relaxed) & 4095) == 0) {
+        auto t_now = std::chrono::high_resolution_clock::now();
+        if (t_now > end_time) {
+            std::cout << "info string time up in quiescence! now: " << t_now.time_since_epoch().count() 
+                      << " end: " << end_time.time_since_epoch().count() << "\n";
+            abort_search = true;
+        }
+    }
     if (abort_search) return 0;
+    if (ply >= MAX_PLY - 1) return evaluate(board, acc);
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 
@@ -650,10 +656,16 @@ int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply
 
 // ─── Negamax ─────────────────────────────────────────────────────────────────
 int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_null, nnue::Accumulator acc, Move prev_move = Move::NULL_MOVE, Move excluded_move = Move::NULL_MOVE) {
-    if ((nodes.load(std::memory_order_relaxed) & 4095) == 0 &&
-        std::chrono::high_resolution_clock::now() > end_time)
-        abort_search = true;
+    if ((nodes.load(std::memory_order_relaxed) & 4095) == 0) {
+        auto t_now = std::chrono::high_resolution_clock::now();
+        if (t_now > end_time) {
+            std::cout << "info string time up in negamax! now: " << t_now.time_since_epoch().count() 
+                      << " end: " << end_time.time_since_epoch().count() << "\n";
+            abort_search = true;
+        }
+    }
     if (abort_search) return 0;
+    if (ply >= MAX_PLY - 1) return evaluate(board, acc);
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 
@@ -726,7 +738,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         }
     }
     // Check extension (placed after static eval so depth is correct)
-    if (in_check) depth++;
+    if (in_check && is_pv) depth++;
     if (depth <= 0) return quiescence(board, alpha, beta, acc);
 
     if (!is_pv && tt_move == Move::NULL_MOVE && depth >= 5) {
@@ -778,6 +790,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 
         bool is_capture  = board.isCapture(move) || move.typeOf() == Move::ENPASSANT;
         bool is_promo    = move.typeOf() == Move::PROMOTION;
+        bool is_tactical = is_capture || is_promo;
 
         // ── Pre-makeMove pruning ─────────────────────────────────────────────
         if (!is_root && !in_check && !is_capture && !is_promo && move_count > 1) {
@@ -797,7 +810,6 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         }
         // ────────────────────────────────────────────────────────────────────
 
-
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
         nnue::update_accumulator(board, move, acc, next_acc);
@@ -811,8 +823,8 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         bool gives_check = board.inCheck();
 
         int extension = 0;
-        if (gives_check) extension = 1;
-        else if (tt_is_singular && move == tt_move) extension = 1;
+        if (gives_check && is_pv) extension = 1;
+        if (tt_is_singular && move == tt_move) extension = 1;
 
         int score;
         if (move_count == 1) {
@@ -860,53 +872,56 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         }
         if (score > alpha) alpha = score;
 
-        if (alpha >= beta) {
-            // Update killers, counter-moves and history on cutoff
-            if (!is_capture && !is_promo && ply < MAX_PLY) {
-                if (killer_moves[ply][0] != move) {
+        if (best_score > original_alpha && best_move != Move::NULL_MOVE) {
+            // Update killers, counter-moves and history for the best move
+            bool best_is_capture = board.isCapture(best_move) || best_move.typeOf() == Move::ENPASSANT;
+            bool best_is_promo = best_move.typeOf() == Move::PROMOTION;
+
+            if (!best_is_capture && !best_is_promo && ply < MAX_PLY) {
+                if (killer_moves[ply][0] != best_move) {
                     killer_moves[ply][1] = killer_moves[ply][0];
-                    killer_moves[ply][0] = move;
+                    killer_moves[ply][0] = best_move;
                 }
                 if (prev_move != Move::NULL_MOVE) {
-                    counter_moves[prev_move.from().index()][prev_move.to().index()] = move;
+                    counter_moves[prev_move.from().index()][prev_move.to().index()] = best_move;
                 }
                 // History bonus: scaled by depth^2
                 int bonus = depth * depth;
                 int col = static_cast<int>(board.sideToMove());
-                auto& h = history_table[col][move.from().index()][move.to().index()];
+                auto& h = history_table[col][best_move.from().index()][best_move.to().index()];
                 h += bonus - h * bonus / 16384;
                 // Continuation history bonus
                 if (prev_piece != Piece::NONE && prev_move != Move::NULL_MOVE
                     && prev_piece.type() != chess::PieceType::NONE) {
-                    chess::Piece mover = board.at(move.from());
+                    chess::Piece mover = board.at(best_move.from());
                     if (mover != Piece::NONE && mover.type() != chess::PieceType::NONE) {
                         int pp = static_cast<int>(prev_piece.type());
                         int cp = static_cast<int>(mover.type());
                         if (pp >= 0 && pp < 6 && cp >= 0 && cp < 6) {
-                            auto& ch = cont_hist[pp][prev_move.to().index()][cp][move.to().index()];
+                            auto& ch = cont_hist[pp][prev_move.to().index()][cp][best_move.to().index()];
                             ch += bonus - ch * bonus / 16384;
                         }
                     }
                 }
-                // History malus: penalize quiet moves that did NOT cause a cutoff
+                // History malus: penalize quiet moves that did NOT cause a cutoff or were worse
                 int malus = -(depth * depth);
                 for (const auto& m2 : moves) {
-                    if (m2 == move) break; // only penalize moves searched before the cutoff
+                    if (m2 == best_move) break; // only penalize moves searched before the best_move
                     if (board.isCapture(m2) || m2.typeOf() == Move::PROMOTION) continue;
                     auto& hm = history_table[col][m2.from().index()][m2.to().index()];
                     hm += malus - hm * malus / 16384;
                 }
-            } else if (is_capture && board.at(move.to()) != Piece::NONE) {
+            } else if (best_is_capture && board.at(best_move.to()) != Piece::NONE) {
                 // Capture history bonus
                 int bonus = depth * depth;
                 int col = static_cast<int>(board.sideToMove());
-                int apt = static_cast<int>(board.at(move.from()).type());
-                int vpt = static_cast<int>(board.at(move.to()).type());
-                auto& ch = capture_hist[col][apt][move.to().index()][vpt];
+                int apt = static_cast<int>(board.at(best_move.from()).type());
+                int vpt = static_cast<int>(board.at(best_move.to()).type());
+                auto& ch = capture_hist[col][apt][best_move.to().index()][vpt];
                 ch += bonus - ch * bonus / 16384;
             }
-            break;
         }
+        if (alpha >= beta) break;
     }
 
     if (!abort_search && excluded_move == Move::NULL_MOVE) {
@@ -964,7 +979,7 @@ void search_worker(Board board, int target_ms) {
 }
 
 // ─── Iterative Deepening + Aspiration Windows ─────────────────────────────────
-Move search_best_move(Board& board, int target_ms) {
+Move search_best_move(Board& board, int target_ms, int max_depth = 64) {
     Move best_move     = Move::NULL_MOVE;
     nodes              = 0;
     abort_search       = false;
@@ -990,7 +1005,7 @@ Move search_best_move(Board& board, int target_ms) {
         workers.emplace_back(search_worker, board, target_ms);
     }
 
-    for (int depth = 1; depth <= 64; ++depth) {
+    for (int depth = 1; depth <= max_depth; ++depth) {
         int alpha, beta;
 
         // Progressive aspiration windows
@@ -1025,7 +1040,9 @@ Move search_best_move(Board& board, int target_ms) {
             }
         }
 
-        if (abort_search) break;
+        if (abort_search) {
+            break;
+        }
         previous_score = score;
 
         // Extract best move
@@ -1177,7 +1194,7 @@ int main() {
                 }
             }
         } else if (command == "go") {
-            int wtime = 0, btime = 0, winc = 0, binc = 0, movetime = 0, movestogo = 0;
+            int wtime = 0, btime = 0, winc = 0, binc = 0, movetime = 0, movestogo = 0, search_depth = 64;
             std::string token;
             while (ss >> token) {
                 if      (token == "wtime")     ss >> wtime;
@@ -1186,6 +1203,7 @@ int main() {
                 else if (token == "binc")      ss >> binc;
                 else if (token == "movetime")  ss >> movetime;
                 else if (token == "movestogo") ss >> movestogo;
+                else if (token == "depth")     ss >> search_depth;
             }
 
             int target_ms;
@@ -1208,7 +1226,7 @@ int main() {
                 std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
                 std::cout.flush();
             } else {
-                best = search_best_move(board, target_ms);
+                best = search_best_move(board, target_ms, search_depth);
                 std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
                 std::cout.flush();
             }
