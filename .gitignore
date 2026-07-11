@@ -27,3 +27,5 @@ best_model.pth
 
 # OS Generated
 .DS_Store
+play_match.py
+/Stockfish
