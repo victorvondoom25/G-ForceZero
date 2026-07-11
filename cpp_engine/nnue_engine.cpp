@@ -1327,8 +1327,20 @@ int main() {
     // Initialize LMR table
     init_lmr_table();
     
-    // Initialize NNUE weights
-    nnue::load_weights("raw.bin");
+    try {
+        nnue::load_weights("raw.bin");
+    } catch (...) {
+        try {
+            nnue::load_weights("cpp_engine/raw.bin");
+        } catch (...) {
+            try {
+                nnue::load_weights("/home/sid/Documents/GitHub/G-ForceZero/cpp_engine/raw.bin");
+            } catch (const std::exception& e) {
+                std::cerr << "Fatal error: " << e.what() << "\n";
+                return 1;
+            }
+        }
+    }
     std::cout << "G-ForceZero NNUE Engine ready.\n";
     std::cout.flush();
 

@@ -6,7 +6,7 @@ using namespace chess;
 extern int classical_evaluate(const Board& board);
 
 int main() {
-    nnue::load_weights("nnue_weights.bin");
+    nnue::load_weights("raw.bin");
     Board b;
     b.setFen("5rk1/3n1qpp/1p2pr2/p1pp4/P2P2Q1/2P1P1P1/1P1B3P/3RR1K1 b - - 0 22"); // Just a dummy, let's use the exact fen
     
