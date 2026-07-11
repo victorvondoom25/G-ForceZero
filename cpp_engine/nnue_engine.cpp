@@ -1,30 +1,22 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Antigravity NNUE Chess Engine
-//  Target: ~2800 ELO
+//  Target: ~2500 ELO
 //  Features:
 //    • Negamax + Alpha-Beta + PVS
 //    • Iterative Deepening + Aspiration Windows (progressive widening)
 //    • Two-bucket Transposition Table (16M entries, 128 MB)
 //    • Internal Iterative Deepening (IID)
-//    • Null-Move Pruning (adaptive R, gated by improving flag)
-//    • Late Move Reductions (LMR, log-based, improving-aware)
-//    • Futility Pruning (forward, pre-makeMove)
-//    • Reverse Futility Pruning (improving-aware)
-//    • SEE-based quiet move pruning (pre-makeMove)
-//    • Late Move Pruning (pre-makeMove)
+//    • Null-Move Pruning (adaptive R)
+//    • Late Move Reductions (LMR, log-based)
+//    • Futility Pruning (forward)
+//    • Reverse Futility Pruning (static NMP)
 //    • Full Recursive SEE for capture ordering & pruning
 //    • Delta Pruning in Quiescence
 //    • Check Extensions
-//    • Singular Extensions
-//    • Contempt Factor (draw avoidance)
-//    • Move ordering: TT move > winning captures (SEE+cap_hist) > killers > counter-moves > history+cont_hist > quiet > losing captures
+//    • Move ordering: TT move > winning captures (SEE) > killers > counter-moves > history > quiet > losing captures
 //    • History Heuristic with gravity (halving between searches)
-//    • History Malus (penalize failing quiet moves)
-//    • Continuation History (1-ply: prev_piece×prev_to × piece×to)
-//    • Capture History (attacker × target_sq × victim)
 //    • Killer Moves (2 slots)
 //    • Counter-Move Heuristic
-//    • Improving Flag (static eval vs 2 plies ago)
 //    • HalfKP NNUE (50% weight) + Classical Eval (50% weight)
 //    • Accurate time management
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,7 +34,6 @@
 #include <cassert>
 #include "chess.hpp"
 #include "nnue.hpp"
-#include "polyglot.hpp"
 
 using namespace chess;
 
@@ -54,7 +45,7 @@ const int MOVE_OVERHEAD = 20; // ms overhead per move
 
 // ─── Piece values ─────────────────────────────────────────────────────────────
 // P=100, N=320, B=330, R=500, Q=900, K=20000
-const int piece_values[6] = {100, 400, 420, 650, 1200, 20000};
+const int piece_values[6] = {100, 320, 330, 500, 900, 20000};
 
 // ─── Transposition Table ─────────────────────────────────────────────────────
 struct TTEntry {
@@ -110,7 +101,7 @@ Move probe_tt_move(uint64_t hash) {
     return Move::NULL_MOVE;
 }
 
-bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& tt_move, int& tt_depth, TTEntry::Flag& tt_flag, int& tt_eval) {
+bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& tt_move) {
     int base = (hash & (TT_MASK >> 1)) * 2;
     uint16_t key = static_cast<uint16_t>(hash >> 48);
     for (int i = 0; i < 2; ++i) {
@@ -120,11 +111,6 @@ bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& t
         
         if (tte.key != key || tte.flag == TTEntry::NONE) continue;
         if (tt_move == Move::NULL_MOVE && tte.move) tt_move = Move(tte.move);
-        
-        tt_depth = tte.depth;
-        tt_flag = static_cast<TTEntry::Flag>(tte.flag);
-        tt_eval = tte.score;
-        
         if (tte.depth >= depth) {
             if (tte.flag == TTEntry::EXACT) { score = tte.score; return true; }
             if (tte.flag == TTEntry::LOWER && tte.score >= beta)  { score = beta;  return true; }
@@ -144,15 +130,11 @@ int opt_nmp_eval_div = 200;
 int opt_lmr_mult = 225; // 2.25 * 100
 int opt_fp_margin_base = 100;
 int opt_fp_margin_mult = 60;
-int opt_contempt = 15; // cp penalty for draws (avoids shuffling into repetition)
 
 // ─── Search State ─────────────────────────────────────────────────────────────
 Move  killer_moves[MAX_PLY][2];
 Move  counter_moves[64][64]; // [from][to] → killer response
-int   history_table[2][64][64];    // [color][from][to]
-int   cont_hist[7][64][7][64];     // [prev_piece][prev_to][piece][to]  (1-ply continuation)
-int   capture_hist[2][6][64][6];   // [color][attacker_pt][to][victim_pt]
-int   static_eval_stack[MAX_PLY];  // for improving flag
+int   history_table[2][64][64]; // [color][from][to]
 
 std::atomic<bool> abort_search{false};
 std::chrono::time_point<std::chrono::high_resolution_clock> end_time;
@@ -439,9 +421,7 @@ int classical_evaluate(const Board& board) {
         if (bc > 1) score += 10 * (bc - 1);
     }
 
-    // 5. Passed pawns — exponential bonus: a passer on rank 6 is worth ~350 cp
-    int w_king_sq = board.kingSq(Color::WHITE).index();
-    int b_king_sq = board.kingSq(Color::BLACK).index();
+    // 5. Passed pawns
     {
         Bitboard tmp = w_pawns;
         while (tmp) {
@@ -453,15 +433,7 @@ int classical_evaluate(const Board& board) {
                 if (f > 0) front |= 1ULL << (rr * 8 + f - 1);
                 if (f < 7) front |= 1ULL << (rr * 8 + f + 1);
             }
-            if (!(front & b_pawns.getBits())) {
-                // Exponential rank bonus
-                int rank_bonus = (r - 1) * (r - 1) * (r - 1) * 10; // cubic
-                score += 10 + rank_bonus;
-                // King proximity: black king far = bigger threat
-                int bk_dist = std::abs(b_king_sq / 8 - r) + std::abs(b_king_sq % 8 - f);
-                int wk_dist = std::abs(w_king_sq / 8 - r) + std::abs(w_king_sq % 8 - f);
-                score += std::min(5, bk_dist - wk_dist) * 8;
-            }
+            if (!(front & b_pawns.getBits())) score += 10 + 20 * (r - 1) * (r - 1);
         }
     }
     {
@@ -475,20 +447,12 @@ int classical_evaluate(const Board& board) {
                 if (f > 0) front |= 1ULL << (rr * 8 + f - 1);
                 if (f < 7) front |= 1ULL << (rr * 8 + f + 1);
             }
-            if (!(front & w_pawns.getBits())) {
-                int rank_bonus = (6 - r) * (6 - r) * (6 - r) * 10;
-                score -= 10 + rank_bonus;
-                // King proximity
-                int wk_dist = std::abs(w_king_sq / 8 - r) + std::abs(w_king_sq % 8 - f);
-                int bk_dist = std::abs(b_king_sq / 8 - r) + std::abs(b_king_sq % 8 - f);
-                score -= std::min(5, wk_dist - bk_dist) * 8;
-            }
+            if (!(front & w_pawns.getBits())) score -= 10 + 20 * (6 - r) * (6 - r);
         }
     }
 
-    // 6. King safety: pawn shield + attack zone (scaled by game phase — less in endgame)
+    // 6. King safety: pawn shield + attack zone
     {
-        double phase_factor = game_phase / 24.0; // 1.0 = opening, 0.0 = endgame
         auto king_safety = [&](Color us, Color them) -> int {
             int pen = 0;
             Square ksq = board.kingSq(us);
@@ -511,7 +475,7 @@ int classical_evaluate(const Board& board) {
                     if (board.isAttacked(Square(r2 * 8 + f2), them)) pen += 8;
                 }
             }
-            return static_cast<int>(pen * phase_factor);
+            return pen;
         };
         score -= king_safety(Color::WHITE, Color::BLACK);
         score += king_safety(Color::BLACK, Color::WHITE);
@@ -521,7 +485,7 @@ int classical_evaluate(const Board& board) {
 }
 
 // ─── Move Scoring for Ordering ────────────────────────────────────────────────
-int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move prev_move, chess::Piece prev_piece) {
+int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move prev_move) {
     if (move == tt_move) return 10'000'000;
 
     bool is_capture = board.isCapture(move) || move.typeOf() == Move::ENPASSANT;
@@ -535,17 +499,10 @@ int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move
 
         int attacker_val = piece_values[static_cast<int>(board.at(move.from()).type())];
         bool winning = see_ge(board, move, 0);
-        int cap_hist = 0;
-        if (board.at(move.to()) != Piece::NONE) {
-            int col = static_cast<int>(board.sideToMove());
-            int apt = static_cast<int>(board.at(move.from()).type());
-            int vpt = static_cast<int>(board.at(move.to()).type());
-            cap_hist = capture_hist[col][apt][move.to().index()][vpt];
-        }
         if (winning)
-            return 7'000'000 + victim_val * 10 - attacker_val + cap_hist / 16;
+            return 7'000'000 + victim_val * 10 - attacker_val;
         else
-            return 1'000 + victim_val * 10 - attacker_val + cap_hist / 16;
+            return 1'000 + victim_val * 10 - attacker_val; // Losing captures below quiet
     }
 
     // Killer moves
@@ -559,25 +516,17 @@ int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move
         counter_moves[prev_move.from().index()][prev_move.to().index()] == move)
         return 5'800'000;
 
-    // History + Continuation History
+    // History heuristic
     int hist = history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()];
-    chess::Piece cur_piece = board.at(move.from());
-    if (prev_piece != Piece::NONE && prev_move != Move::NULL_MOVE
-        && prev_piece.type() != chess::PieceType::NONE
-        && cur_piece != Piece::NONE && cur_piece.type() != chess::PieceType::NONE) {
-        int pp = static_cast<int>(prev_piece.type());
-        int cp = static_cast<int>(cur_piece.type());
-        if (pp >= 0 && pp < 6 && cp >= 0 && cp < 6)
-            hist += cont_hist[pp][prev_move.to().index()][cp][move.to().index()];
-    }
     return hist;
 }
 
-void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_MOVE, int ply = -1, Move prev_move = Move::NULL_MOVE, chess::Piece prev_piece = Piece::NONE) {
+void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_MOVE, int ply = -1, Move prev_move = Move::NULL_MOVE) {
     int n = moves.size();
+    // Score all moves once, then sort (faster than insertion sort with per-compare scoring)
     std::vector<std::pair<int, int>> scored(n);
     for (int i = 0; i < n; ++i)
-        scored[i] = {score_move(board, moves[i], tt_move, ply, prev_move, prev_piece), i};
+        scored[i] = {score_move(board, moves[i], tt_move, ply, prev_move), i};
     std::sort(scored.begin(), scored.end(), [](const auto& a, const auto& b){ return a.first > b.first; });
     Movelist tmp = moves;
     for (int i = 0; i < n; ++i) moves[i] = tmp[scored[i].second];
@@ -585,53 +534,43 @@ void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_M
 
 // ─── Evaluation ───────────────────────────────────────────────────────────────
 int evaluate(const Board& board, const nnue::Accumulator& acc) {
-    return nnue::evaluate(acc, board.sideToMove());
+    int classical = classical_evaluate(board);
+    int nnue_score = nnue::evaluate(acc, board.sideToMove());
+    // 50% classical, 50% NNUE
+    return (classical + nnue_score) / 2;
 }
 
 // ─── Quiescence Search ────────────────────────────────────────────────────────
 int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply = 0) {
-    if ((nodes.load(std::memory_order_relaxed) & 4095) == 0) {
-        auto t_now = std::chrono::high_resolution_clock::now();
-        if (t_now > end_time) {
-            std::cout << "info string time up in quiescence! now: " << t_now.time_since_epoch().count() 
-                      << " end: " << end_time.time_since_epoch().count() << "\n";
-            abort_search = true;
-        }
-    }
+    if ((nodes.load(std::memory_order_relaxed) & 4095) == 0 &&
+        std::chrono::high_resolution_clock::now() > end_time)
+        abort_search = true;
     if (abort_search) return 0;
-    if (ply >= MAX_PLY - 1) return evaluate(board, acc);
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 
-    bool in_check = board.inCheck();
-    int stand_pat = -MATE_SCORE + ply; // Default for in check
+    int stand_pat = evaluate(board, acc);
+    if (stand_pat >= beta) return beta;
 
-    if (!in_check) {
-        stand_pat = evaluate(board, acc);
-        if (stand_pat >= beta) return beta;
-        if (stand_pat + 1000 < alpha) return alpha; // Delta pruning
-        if (stand_pat > alpha) alpha = stand_pat;
-    }
+    // Delta pruning (skip if we can't possibly improve alpha even with best capture)
+    const int DELTA = 1000; // queen + some margin
+    if (stand_pat + DELTA < alpha) return alpha;
+
+    if (stand_pat > alpha) alpha = stand_pat;
 
     Movelist moves;
-    if (in_check) {
-        movegen::legalmoves<movegen::MoveGenType::ALL>(moves, board);
-    } else {
-        movegen::legalmoves<movegen::MoveGenType::CAPTURE>(moves, board);
-    }
+    movegen::legalmoves<movegen::MoveGenType::CAPTURE>(moves, board);
     sort_moves(board, moves);
 
     for (const auto& move : moves) {
-        if (!in_check) {
-            // Skip losing captures (SEE < 0)
-            if (!see_ge(board, move, 0)) continue;
+        // Skip losing captures (SEE < 0)
+        if (!see_ge(board, move, 0)) continue;
 
-            // Per-move delta pruning
-            int capt_val = (move.typeOf() == Move::ENPASSANT) ? piece_values[0] :
-                           (board.at(move.to()) != Piece::NONE) ? piece_values[static_cast<int>(board.at(move.to()).type())] : 0;
-            if (move.typeOf() == Move::PROMOTION) capt_val += piece_values[4];
-            if (stand_pat + capt_val + 200 < alpha) continue;
-        }
+        // Per-move delta pruning
+        int capt_val = (move.typeOf() == Move::ENPASSANT) ? piece_values[0] :
+                       (board.at(move.to()) != Piece::NONE) ? piece_values[static_cast<int>(board.at(move.to()).type())] : 0;
+        if (move.typeOf() == Move::PROMOTION) capt_val += piece_values[4];
+        if (stand_pat + capt_val + 200 < alpha) continue;
 
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
@@ -652,37 +591,27 @@ int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply
 }
 
 // ─── Negamax ─────────────────────────────────────────────────────────────────
-int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_null, nnue::Accumulator acc, Move prev_move = Move::NULL_MOVE, Move excluded_move = Move::NULL_MOVE) {
-    if ((nodes.load(std::memory_order_relaxed) & 4095) == 0) {
-        auto t_now = std::chrono::high_resolution_clock::now();
-        if (t_now > end_time) {
-            std::cout << "info string time up in negamax! now: " << t_now.time_since_epoch().count() 
-                      << " end: " << end_time.time_since_epoch().count() << "\n";
-            abort_search = true;
-        }
-    }
+int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_null, nnue::Accumulator acc, Move prev_move = Move::NULL_MOVE) {
+    if ((nodes.load(std::memory_order_relaxed) & 4095) == 0 &&
+        std::chrono::high_resolution_clock::now() > end_time)
+        abort_search = true;
     if (abort_search) return 0;
-    if (ply >= MAX_PLY - 1) return evaluate(board, acc);
 
     nodes.fetch_add(1, std::memory_order_relaxed);
 
     bool is_root = (ply == 0);
     bool is_pv   = (beta - alpha > 1);
 
-    if (!is_root && (board.isHalfMoveDraw() || board.isRepetition())) return -opt_contempt;
+    if (!is_root && (board.isHalfMoveDraw() || board.isRepetition())) return 0;
 
     uint64_t hash = board.hash();
     __builtin_prefetch(&TT[(hash & (TT_MASK >> 1)) * 2]);
     
     Move tt_move = Move::NULL_MOVE;
-    int tt_depth = 0;
-    TTEntry::Flag tt_flag = TTEntry::NONE;
-    int tt_eval = 0;
 
     // TT probe
     int tt_score = 0;
-    bool tt_hit = probe_tt(hash, depth, alpha, beta, tt_score, tt_move, tt_depth, tt_flag, tt_eval);
-    if (tt_hit && excluded_move == Move::NULL_MOVE && !is_root) {
+    if (!is_root && probe_tt(hash, depth, alpha, beta, tt_score, tt_move)) {
         return tt_score;
     }
     if (tt_move == Move::NULL_MOVE) tt_move = probe_tt_move(hash);
@@ -694,22 +623,18 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 
     bool in_check = board.inCheck();
 
+    // Check extension
+    if (in_check) depth++;
+
+    if (depth <= 0) return quiescence(board, alpha, beta, acc);
+
     // Compute static eval for pruning (avoid if in check)
     int static_eval = 0;
-    if (!in_check) {
-        static_eval = evaluate(board, acc);
-        static_eval_stack[ply] = static_eval;
-    }
+    if (!in_check) static_eval = evaluate(board, acc);
 
-    // Improving flag: are we doing better than 2 plies ago?
-    bool improving = false;
-    if (!in_check && ply >= 2 && static_eval_stack[ply - 2] != 0)
-        improving = static_eval > static_eval_stack[ply - 2];
-
-    // Reverse futility pruning (tighten when not improving)
+    // Reverse futility pruning (static null-move pruning)
     if (!is_pv && !in_check && depth <= 8 && ply > 0) {
-        int rfp_margin = opt_rfp_margin * depth - (improving ? opt_rfp_margin / 2 : 0);
-        if (static_eval - rfp_margin >= beta) {
+        if (static_eval - opt_rfp_margin * depth >= beta) {
             return static_eval;
         }
     }
@@ -722,7 +647,6 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                           board.pieces(PieceType::QUEEN).count() > 0;
         if (has_pieces && static_eval >= beta) {
             int R = opt_nmp_base + depth / opt_nmp_depth_div + std::min(3, (static_eval - beta) / opt_nmp_eval_div);
-            if (!improving) R++; // probe deeper when not improving
             board.makeNullMove();
             int null_score = -negamax(board, depth - 1 - R, -beta, -beta + 1, ply + 1, false, acc, Move::NULL_MOVE);
             board.unmakeNullMove();
@@ -734,28 +658,11 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
             }
         }
     }
-    // Check extension (placed after static eval so depth is correct)
-    if (in_check && is_pv) depth++;
-    if (depth <= 0) return quiescence(board, alpha, beta, acc);
 
+    // Internal Iterative Deepening: if no TT move and deep node, search shallower first
     if (!is_pv && tt_move == Move::NULL_MOVE && depth >= 5) {
         negamax(board, depth - 4, alpha, beta, ply, false, acc, prev_move);
         tt_move = probe_tt_move(hash);
-    }
-    
-    // Singular Extensions
-    bool tt_is_singular = false;
-    if (!is_root && depth >= 8 && tt_move != Move::NULL_MOVE && 
-        excluded_move == Move::NULL_MOVE && 
-        tt_depth >= depth - 3 && 
-        tt_flag != TTEntry::UPPER && 
-        std::abs(tt_eval) < MATE_SCORE - 1000) 
-    {
-        int singular_beta = tt_eval - depth;
-        int singular_score = negamax(board, depth / 2, singular_beta - 1, singular_beta, ply, false, acc, prev_move, tt_move);
-        if (singular_score < singular_beta) {
-            tt_is_singular = true;
-        }
     }
 
     Movelist moves;
@@ -764,15 +671,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         return in_check ? (-MATE_SCORE + ply) : 0; // Checkmate or stalemate
     }
 
-    // Get previous piece for continuation history lookups
-    chess::Piece prev_piece = Piece::NONE;
-    if (prev_move != Move::NULL_MOVE) {
-        prev_piece = board.at(prev_move.to());
-        // After a null-move or en-passant the square may be empty — guard against it
-        if (prev_piece == Piece::NONE) prev_piece = Piece::NONE;
-    }
-
-    sort_moves(board, moves, tt_move, ply, prev_move, prev_piece);
+    sort_moves(board, moves, tt_move, ply, prev_move);
 
     int best_score    = -INF;
     Move best_move    = Move::NULL_MOVE;
@@ -783,29 +682,8 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     int fp_margin = opt_fp_margin_base + (depth - 1) * opt_fp_margin_mult;
 
     for (const auto& move : moves) {
-        if (move == excluded_move) continue;
-
         bool is_capture  = board.isCapture(move) || move.typeOf() == Move::ENPASSANT;
         bool is_promo    = move.typeOf() == Move::PROMOTION;
-        bool is_tactical = is_capture || is_promo;
-
-        // ── Pre-makeMove pruning ─────────────────────────────────────────────
-        if (!is_root && !in_check && !is_capture && !is_promo && move_count > 1) {
-            // Protect killers and moves with good history from FP and LMP
-            bool is_killer = (ply < MAX_PLY && (killer_moves[ply][0] == move || killer_moves[ply][1] == move));
-            int hist = history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()];
-            bool protect = is_killer || hist > 0;
-
-            // SEE-based quiet move pruning at low depth (MUST be before makeMove)
-            if (!is_pv && depth <= 6 && !protect && !see_ge(board, move, -50 * depth)) continue;
-
-            // Futility pruning: skip quiet moves that can't improve alpha
-            if (!is_pv && depth <= 6 && !protect && static_eval + fp_margin <= alpha) continue;
-
-            // Late move pruning: skip very late quiet moves at low depth
-            if (!is_pv && depth <= 4 && !protect && move_count > 4 + depth * depth) continue;
-        }
-        // ────────────────────────────────────────────────────────────────────
 
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
@@ -819,14 +697,25 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         move_count++;
         bool gives_check = board.inCheck();
 
-        int extension = 0;
-        if (gives_check && is_pv) extension = 1;
-        if (tt_is_singular && move == tt_move) extension = 1;
+        // Futility pruning (forward): skip quiet moves that can't improve alpha
+        if (!is_root && !in_check && !gives_check && !is_capture && !is_promo
+            && depth <= 8 && move_count > 1)
+        {
+            if (static_eval + fp_margin <= alpha) {
+                board.unmakeMove(move);
+                continue;
+            }
+            // Late move pruning: skip very late quiet moves at low depth
+            if (!is_pv && depth <= 4 && move_count > 4 + depth * depth) {
+                board.unmakeMove(move);
+                continue;
+            }
+        }
 
         int score;
         if (move_count == 1) {
             // PV node: full window
-            score = -negamax(board, depth - 1 + extension, -beta, -alpha, ply + 1, true, next_acc, move);
+            score = -negamax(board, depth - 1, -beta, -alpha, ply + 1, true, next_acc, move);
         } else {
             // LMR: reduce late quiet moves
             bool do_lmr = move_count > 3 && depth >= 3 && !is_capture && !is_promo
@@ -834,29 +723,22 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
             int R = 0;
             if (do_lmr) {
                 R = 1 + static_cast<int>(std::log(depth) * std::log(move_count) * 100.0 / opt_lmr_mult);
-                if (is_pv) R--;              // PV nodes: reduce less
-                if (!improving) R++;         // Not improving: reduce more
-                
-                // History and killer move modifiers
-                if (ply < MAX_PLY && (killer_moves[ply][0] == move || killer_moves[ply][1] == move)) R--;
-                int hist = history_table[static_cast<int>(~board.sideToMove())][move.from().index()][move.to().index()];
-                if (hist > 4000) R -= 2;
-                else if (hist > 0) R -= 1;
-
                 R = std::min(R, depth - 2);
                 R = std::max(R, 1);
+                // Don't reduce PV nodes or history-backed moves as much
+                if (is_pv) R--;
             }
 
             // Null-window search
-            score = -negamax(board, depth - 1 - R + extension, -alpha - 1, -alpha, ply + 1, true, next_acc, move);
+            score = -negamax(board, depth - 1 - R, -alpha - 1, -alpha, ply + 1, true, next_acc, move);
 
             // Full-depth re-search if LMR raised alpha or window failed
             if (score > alpha && (R > 0 || (!is_pv && score < beta))) {
-                score = -negamax(board, depth - 1 + extension, -alpha - 1, -alpha, ply + 1, true, next_acc, move);
+                score = -negamax(board, depth - 1, -alpha - 1, -alpha, ply + 1, true, next_acc, move);
             }
             // Full-window re-search for PV update
             if (score > alpha && score < beta) {
-                score = -negamax(board, depth - 1 + extension, -beta, -alpha, ply + 1, true, next_acc, move);
+                score = -negamax(board, depth - 1, -beta, -alpha, ply + 1, true, next_acc, move);
             }
         }
 
@@ -869,59 +751,26 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         }
         if (score > alpha) alpha = score;
 
-        if (best_score > original_alpha && best_move != Move::NULL_MOVE) {
-            // Update killers, counter-moves and history for the best move
-            bool best_is_capture = board.isCapture(best_move) || best_move.typeOf() == Move::ENPASSANT;
-            bool best_is_promo = best_move.typeOf() == Move::PROMOTION;
-
-            if (!best_is_capture && !best_is_promo && ply < MAX_PLY) {
-                if (killer_moves[ply][0] != best_move) {
+        if (alpha >= beta) {
+            // Update killers, counter-moves and history on cutoff
+            if (!is_capture && !is_promo && ply < MAX_PLY) {
+                if (killer_moves[ply][0] != move) {
                     killer_moves[ply][1] = killer_moves[ply][0];
-                    killer_moves[ply][0] = best_move;
+                    killer_moves[ply][0] = move;
                 }
                 if (prev_move != Move::NULL_MOVE) {
-                    counter_moves[prev_move.from().index()][prev_move.to().index()] = best_move;
+                    counter_moves[prev_move.from().index()][prev_move.to().index()] = move;
                 }
-                // History bonus: scaled by depth^2
+                // History bonus: depth^2, with bonus scaled by depth
                 int bonus = depth * depth;
-                int col = static_cast<int>(board.sideToMove());
-                auto& h = history_table[col][best_move.from().index()][best_move.to().index()];
-                h += bonus - h * bonus / 16384;
-                // Continuation history bonus
-                if (prev_piece != Piece::NONE && prev_move != Move::NULL_MOVE
-                    && prev_piece.type() != chess::PieceType::NONE) {
-                    chess::Piece mover = board.at(best_move.from());
-                    if (mover != Piece::NONE && mover.type() != chess::PieceType::NONE) {
-                        int pp = static_cast<int>(prev_piece.type());
-                        int cp = static_cast<int>(mover.type());
-                        if (pp >= 0 && pp < 6 && cp >= 0 && cp < 6) {
-                            auto& ch = cont_hist[pp][prev_move.to().index()][cp][best_move.to().index()];
-                            ch += bonus - ch * bonus / 16384;
-                        }
-                    }
-                }
-                // History malus: penalize quiet moves that did NOT cause a cutoff or were worse
-                int malus = -(depth * depth);
-                for (const auto& m2 : moves) {
-                    if (m2 == best_move) break; // only penalize moves searched before the best_move
-                    if (board.isCapture(m2) || m2.typeOf() == Move::PROMOTION) continue;
-                    auto& hm = history_table[col][m2.from().index()][m2.to().index()];
-                    hm += malus - hm * malus / 16384;
-                }
-            } else if (best_is_capture && board.at(best_move.to()) != Piece::NONE) {
-                // Capture history bonus
-                int bonus = depth * depth;
-                int col = static_cast<int>(board.sideToMove());
-                int apt = static_cast<int>(board.at(best_move.from()).type());
-                int vpt = static_cast<int>(board.at(best_move.to()).type());
-                auto& ch = capture_hist[col][apt][best_move.to().index()][vpt];
-                ch += bonus - ch * bonus / 16384;
+                history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()]
+                    += bonus - history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()] * bonus / 16384;
             }
+            break;
         }
-        if (alpha >= beta) break;
     }
 
-    if (!abort_search && excluded_move == Move::NULL_MOVE) {
+    if (!abort_search) {
         TTEntry::Flag flag;
         if (best_score <= original_alpha) flag = TTEntry::UPPER;
         else if (best_score >= beta)      flag = TTEntry::LOWER;
@@ -976,7 +825,7 @@ void search_worker(Board board, int target_ms) {
 }
 
 // ─── Iterative Deepening + Aspiration Windows ─────────────────────────────────
-Move search_best_move(Board& board, int target_ms, int max_depth = 64) {
+Move search_best_move(Board& board, int target_ms) {
     Move best_move     = Move::NULL_MOVE;
     nodes              = 0;
     abort_search       = false;
@@ -1002,7 +851,7 @@ Move search_best_move(Board& board, int target_ms, int max_depth = 64) {
         workers.emplace_back(search_worker, board, target_ms);
     }
 
-    for (int depth = 1; depth <= max_depth; ++depth) {
+    for (int depth = 1; depth <= 64; ++depth) {
         int alpha, beta;
 
         // Progressive aspiration windows
@@ -1037,9 +886,7 @@ Move search_best_move(Board& board, int target_ms, int max_depth = 64) {
             }
         }
 
-        if (abort_search) {
-            break;
-        }
+        if (abort_search) break;
         previous_score = score;
 
         // Extract best move
@@ -1050,25 +897,12 @@ Move search_best_move(Board& board, int target_ms, int max_depth = 64) {
         int elapsed_ms = static_cast<int>(std::chrono::duration<double>(now - start).count() * 1000);
         long long nps  = (elapsed_ms > 0) ? (nodes.load() * 1000LL / elapsed_ms) : 0;
 
-        // Extract full PV
-        std::string pv_str = "";
-        Board pv_board = board;
-        int pv_len = 0;
-        Move current_pv_move = best_move;
-        
-        while (current_pv_move != Move::NULL_MOVE && pv_len < depth) {
-            pv_str += uci::moveToUci(current_pv_move) + " ";
-            pv_board.makeMove(current_pv_move);
-            pv_len++;
-            current_pv_move = probe_tt_move(pv_board.hash());
-        }
-
         std::cout << "info depth " << depth
                   << " score cp " << score
                   << " nodes " << nodes.load()
                   << " time " << elapsed_ms
                   << " nps " << nps
-                  << " pv " << (pv_str.empty() ? "(none)" : pv_str)
+                  << " pv " << (best_move != Move::NULL_MOVE ? uci::moveToUci(best_move) : "(none)")
                   << "\n";
         std::cout.flush();
 
@@ -1095,7 +929,6 @@ Move search_best_move(Board& board, int target_ms, int max_depth = 64) {
 // ─── UCI Loop ─────────────────────────────────────────────────────────────────
 int main() {
     nnue::load_weights("nnue_weights.bin");
-    std::cout << "G-ForceZero NNUE Engine initialized.\n";
 
     chess::Board board;
     board.setFen(chess::constants::STARTPOS);
@@ -1119,15 +952,7 @@ int main() {
                       << "option name LMR_Mult type spin default 225 min 50 max 500\n"
                       << "option name FP_Margin_Base type spin default 100 min 10 max 300\n"
                       << "option name FP_Margin_Mult type spin default 60 min 10 max 200\n"
-                      << "option name Contempt type spin default 15 min 0 max 100\n"
                       << "uciok\n";
-        } else if (command == "eval") {
-            nnue::Accumulator acc;
-            nnue::refresh_accumulator(board, Color::WHITE, acc);
-            nnue::refresh_accumulator(board, Color::BLACK, acc);
-            int nnue_score = nnue::evaluate(acc, board.sideToMove());
-            std::cout << "NNUE Eval: " << nnue_score << "\n";
-            std::cout << "Total Eval: " << nnue_score << "\n";
         } else if (command == "setoption") {
             std::string name, name_val, value, val_val;
             ss >> name >> name_val >> value >> val_val;
@@ -1147,8 +972,6 @@ int main() {
                 opt_fp_margin_base = std::stoi(val_val);
             } else if (name_val == "FP_Margin_Mult") {
                 opt_fp_margin_mult = std::stoi(val_val);
-            } else if (name_val == "Contempt") {
-                opt_contempt = std::stoi(val_val);
             }
         } else if (command == "isready") {
             std::cout << "readyok\n";
@@ -1157,11 +980,6 @@ int main() {
             tt_clear();
             std::fill(&history_table[0][0][0], &history_table[0][0][0] + sizeof(history_table) / sizeof(int), 0);
             std::fill(&counter_moves[0][0], &counter_moves[0][0] + sizeof(counter_moves) / sizeof(Move), Move::NULL_MOVE);
-            std::memset(cont_hist, 0, sizeof(cont_hist));
-            std::memset(capture_hist, 0, sizeof(capture_hist));
-            std::memset(static_eval_stack, 0, sizeof(static_eval_stack));
-
-
         } else if (command == "position") {
             std::string token;
             ss >> token;
@@ -1189,7 +1007,7 @@ int main() {
                 }
             }
         } else if (command == "go") {
-            int wtime = 0, btime = 0, winc = 0, binc = 0, movetime = 0, movestogo = 0, search_depth = 64;
+            int wtime = 0, btime = 0, winc = 0, binc = 0, movetime = 0, movestogo = 0;
             std::string token;
             while (ss >> token) {
                 if      (token == "wtime")     ss >> wtime;
@@ -1198,7 +1016,6 @@ int main() {
                 else if (token == "binc")      ss >> binc;
                 else if (token == "movetime")  ss >> movetime;
                 else if (token == "movestogo") ss >> movestogo;
-                else if (token == "depth")     ss >> search_depth;
             }
 
             int target_ms;
@@ -1215,16 +1032,9 @@ int main() {
                 target_ms = 5000; // Analysis mode
             }
 
-            chess::Move best = get_book_move(board, "book.bin");
-            if (best != chess::Move::NULL_MOVE) {
-                std::cout << "info string Playing from PolyGlot opening book\n";
-                std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
-                std::cout.flush();
-            } else {
-                best = search_best_move(board, target_ms, search_depth);
-                std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
-                std::cout.flush();
-            }
+            chess::Move best = search_best_move(board, target_ms);
+            std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
+            std::cout.flush();
         } else if (command == "quit") {
             break;
         }
