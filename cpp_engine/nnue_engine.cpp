@@ -72,24 +72,29 @@ void tt_clear() {
     }
 }
 
+uint8_t current_age = 0;
+
 void write_tt(uint64_t hash, Move move, int depth, int score, TTEntry::Flag flag) {
     int base = (hash & (TT_MASK >> 1)) * 2;
     uint16_t key = static_cast<uint16_t>(hash >> 48);
 
-    TTEntry new_entry = { key, move.move(), static_cast<int16_t>(score), static_cast<int8_t>(depth), static_cast<uint8_t>(flag) };
+    uint8_t flag_age = static_cast<uint8_t>(flag) | (current_age << 2);
+    TTEntry new_entry = { key, move.move(), static_cast<int16_t>(score), static_cast<int8_t>(depth), flag_age };
     uint64_t data;
     std::memcpy(&data, &new_entry, 8);
 
-    // Slot 0: depth-preferred
     uint64_t slot0_data = TT[base].load(std::memory_order_relaxed);
     TTEntry slot0;
     std::memcpy(&slot0, &slot0_data, 8);
     
-    if (slot0.flag == TTEntry::NONE || depth >= slot0.depth) {
+    uint8_t slot0_flag = slot0.flag & 3;
+    uint8_t slot0_age  = slot0.flag >> 2;
+    
+    if (slot0_flag == TTEntry::NONE || slot0_age != current_age || depth >= slot0.depth) {
         TT[base].store(data, std::memory_order_relaxed);
+    } else {
+        TT[base + 1].store(data, std::memory_order_relaxed);
     }
-    // Slot 1: always-replace
-    TT[base + 1].store(data, std::memory_order_relaxed);
 }
 
 Move probe_tt_move(uint64_t hash) {
@@ -99,7 +104,7 @@ Move probe_tt_move(uint64_t hash) {
         uint64_t data = TT[base + i].load(std::memory_order_relaxed);
         TTEntry tte;
         std::memcpy(&tte, &data, 8);
-        if (tte.key == key && tte.flag != TTEntry::NONE) return Move(tte.move);
+        if (tte.key == key && (tte.flag & 3) != TTEntry::NONE) return Move(tte.move);
     }
     return Move::NULL_MOVE;
 }
@@ -112,17 +117,18 @@ bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int& score, Move& t
         TTEntry tte;
         std::memcpy(&tte, &data, 8);
         
-        if (tte.key != key || tte.flag == TTEntry::NONE) continue;
+        uint8_t flag = tte.flag & 3;
+        if (tte.key != key || flag == TTEntry::NONE) continue;
         if (tt_move == Move::NULL_MOVE && tte.move) tt_move = Move(tte.move);
         
         tt_depth = tte.depth;
-        tt_flag = static_cast<TTEntry::Flag>(tte.flag);
+        tt_flag = static_cast<TTEntry::Flag>(flag);
         tt_eval = tte.score;
         
         if (tte.depth >= depth) {
-            if (tte.flag == TTEntry::EXACT) { score = tte.score; return true; }
-            if (tte.flag == TTEntry::LOWER && tte.score >= beta)  { score = beta;  return true; }
-            if (tte.flag == TTEntry::UPPER && tte.score <= alpha) { score = alpha; return true; }
+            if (flag == TTEntry::EXACT) { score = tte.score; return true; }
+            if (flag == TTEntry::LOWER && tte.score >= beta)  { score = beta;  return true; }
+            if (flag == TTEntry::UPPER && tte.score <= alpha) { score = alpha; return true; }
         }
     }
     return false;
@@ -718,11 +724,17 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     // Futility pruning margins
     int fp_margin = opt_fp_margin_base + (depth - 1) * opt_fp_margin_mult;
 
+    Move quiets_searched[64];
+    int num_quiets = 0;
+
     for (const auto& move : moves) {
         if (move == excluded_move) continue;
 
         bool is_capture  = board.isCapture(move) || move.typeOf() == Move::ENPASSANT;
         bool is_promo    = move.typeOf() == Move::PROMOTION;
+        if (!is_capture && !is_promo && num_quiets < 64) {
+            quiets_searched[num_quiets++] = move;
+        }
 
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
@@ -804,9 +816,16 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                     counter_moves[prev_move.from().index()][prev_move.to().index()] = move;
                 }
                 // History bonus: depth^2, with bonus scaled by depth
-                int bonus = depth * depth;
+                int bonus = std::min(depth * depth, 400);
                 history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()]
-                    += bonus - history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()] * bonus / 16384;
+                    += bonus - history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()] * std::abs(bonus) / 16384;
+                
+                // History penalties
+                for (int i = 0; i < num_quiets - 1; ++i) {
+                    Move q = quiets_searched[i];
+                    history_table[static_cast<int>(board.sideToMove())][q.from().index()][q.to().index()]
+                        -= bonus + history_table[static_cast<int>(board.sideToMove())][q.from().index()][q.to().index()] * std::abs(bonus) / 16384;
+                }
             }
             break;
         }
@@ -941,6 +960,7 @@ Move search_best_move(Board& board, int target_ms) {
     Move best_move     = Move::NULL_MOVE;
     nodes              = 0;
     abort_search       = false;
+    current_age        = (current_age + 1) & 63;
 
     // History gravity: halve history between searches
     for (auto& c : history_table)
