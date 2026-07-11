@@ -811,7 +811,8 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         bool gives_check = board.inCheck();
 
         int extension = 0;
-        if (tt_is_singular && move == tt_move) extension = 1;
+        if (gives_check) extension = 1;
+        else if (tt_is_singular && move == tt_move) extension = 1;
 
         int score;
         if (move_count == 1) {
@@ -824,10 +825,17 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
             int R = 0;
             if (do_lmr) {
                 R = 1 + static_cast<int>(std::log(depth) * std::log(move_count) * 100.0 / opt_lmr_mult);
-                R = std::min(R, depth - 2);
-                R = std::max(R, 1);
                 if (is_pv) R--;              // PV nodes: reduce less
                 if (!improving) R++;         // Not improving: reduce more
+                
+                // History and killer move modifiers
+                if (ply < MAX_PLY && (killer_moves[ply][0] == move || killer_moves[ply][1] == move)) R--;
+                int hist = history_table[static_cast<int>(~board.sideToMove())][move.from().index()][move.to().index()];
+                if (hist > 4000) R -= 2;
+                else if (hist > 0) R -= 1;
+
+                R = std::min(R, depth - 2);
+                R = std::max(R, 1);
             }
 
             // Null-window search
@@ -1028,12 +1036,25 @@ Move search_best_move(Board& board, int target_ms) {
         int elapsed_ms = static_cast<int>(std::chrono::duration<double>(now - start).count() * 1000);
         long long nps  = (elapsed_ms > 0) ? (nodes.load() * 1000LL / elapsed_ms) : 0;
 
+        // Extract full PV
+        std::string pv_str = "";
+        Board pv_board = board;
+        int pv_len = 0;
+        Move current_pv_move = best_move;
+        
+        while (current_pv_move != Move::NULL_MOVE && pv_len < depth) {
+            pv_str += uci::moveToUci(current_pv_move) + " ";
+            pv_board.makeMove(current_pv_move);
+            pv_len++;
+            current_pv_move = probe_tt_move(pv_board.hash());
+        }
+
         std::cout << "info depth " << depth
                   << " score cp " << score
                   << " nodes " << nodes.load()
                   << " time " << elapsed_ms
                   << " nps " << nps
-                  << " pv " << (best_move != Move::NULL_MOVE ? uci::moveToUci(best_move) : "(none)")
+                  << " pv " << (pv_str.empty() ? "(none)" : pv_str)
                   << "\n";
         std::cout.flush();
 
