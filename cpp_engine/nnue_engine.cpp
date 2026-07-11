@@ -680,14 +680,15 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         }
     }
 
-    // Null-move pruning (skip when not improving — position already bad)
-    if (allow_null && !is_pv && !in_check && ply > 0 && depth >= 3 && improving) {
+    // Null-move pruning
+    if (allow_null && !is_pv && !in_check && ply > 0 && depth >= 3) {
         bool has_pieces = board.pieces(PieceType::KNIGHT).count() +
                           board.pieces(PieceType::BISHOP).count() +
                           board.pieces(PieceType::ROOK).count() +
                           board.pieces(PieceType::QUEEN).count() > 0;
         if (has_pieces && static_eval >= beta) {
             int R = opt_nmp_base + depth / opt_nmp_depth_div + std::min(3, (static_eval - beta) / opt_nmp_eval_div);
+            if (!improving) R++; // probe deeper when not improving
             board.makeNullMove();
             int null_score = -negamax(board, depth - 1 - R, -beta, -beta + 1, ply + 1, false, acc, Move::NULL_MOVE);
             board.unmakeNullMove();
