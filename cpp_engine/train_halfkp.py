@@ -205,9 +205,9 @@ class HalfKPNet(nn.Module):
         acc   = torch.cat([w_acc, b_acc], dim=1)
         return torch.sigmoid(self.fc2(acc))
 
-# ─── Weight Export ────────────────────────────────────────────────────────────
 def export_quantized_weights(model, filename):
-    fc1_w = (model.fc1.weight.detach().cpu().numpy() * 256).astype('int16')
+    # Transpose fc1.weight to map PyTorch's [out, in] to C++'s [in][out] correctly
+    fc1_w = (model.fc1.weight.detach().cpu().numpy().T.copy() * 256).astype('int16')
     fc1_b = (model.fc1.bias.detach().cpu().numpy()   * 256).astype('int16')
     fc2_w = (model.fc2.weight.detach().cpu().numpy()  * 64).astype('int16')
     fc2_b = (model.fc2.bias.detach().cpu().numpy()    * 64 * 256).astype('int32')
@@ -245,8 +245,15 @@ def train(dataset_file, epochs=2, num_workers=0):
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=1)
-
+    
     best_loss = float('inf')
+    if os.path.exists("training_state.pth"):
+        print("Loading optimizer and loss state to prevent catastrophic forgetting...")
+        state = torch.load("training_state.pth", map_location=device)
+        optimizer.load_state_dict(state['optimizer'])
+        scheduler.load_state_dict(state['scheduler'])
+        best_loss = state.get('best_loss', float('inf'))
+
     total_positions = len(dataset)
     batches_per_epoch = total_positions // BATCH_SIZE
 
@@ -286,6 +293,11 @@ def train(dataset_file, epochs=2, num_workers=0):
             if avg_loss < best_loss:
                 best_loss = avg_loss
                 torch.save(model.state_dict(), "best_model.pth")
+                torch.save({
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'best_loss': best_loss
+                }, "training_state.pth")
                 export_quantized_weights(model, "nnue_weights.bin")
                 print(f"✅ New best! Saved nnue_weights.bin (loss={best_loss:.4f})\n")
 
