@@ -141,7 +141,10 @@ int opt_contempt = 15; // cp penalty for draws (avoids shuffling into repetition
 // ─── Search State ─────────────────────────────────────────────────────────────
 Move  killer_moves[MAX_PLY][2];
 Move  counter_moves[64][64]; // [from][to] → killer response
-int   history_table[2][64][64]; // [color][from][to]
+int   history_table[2][64][64];    // [color][from][to]
+int   cont_hist[7][64][7][64];     // [prev_piece][prev_to][piece][to]  (1-ply continuation)
+int   capture_hist[2][6][64][6];   // [color][attacker_pt][to][victim_pt]
+int   static_eval_stack[MAX_PLY];  // for improving flag
 
 std::atomic<bool> abort_search{false};
 std::chrono::time_point<std::chrono::high_resolution_clock> end_time;
@@ -492,7 +495,7 @@ int classical_evaluate(const Board& board) {
 }
 
 // ─── Move Scoring for Ordering ────────────────────────────────────────────────
-int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move prev_move) {
+int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move prev_move, chess::Piece prev_piece) {
     if (move == tt_move) return 10'000'000;
 
     bool is_capture = board.isCapture(move) || move.typeOf() == Move::ENPASSANT;
@@ -506,10 +509,17 @@ int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move
 
         int attacker_val = piece_values[static_cast<int>(board.at(move.from()).type())];
         bool winning = see_ge(board, move, 0);
+        int cap_hist = 0;
+        if (board.at(move.to()) != Piece::NONE) {
+            int col = static_cast<int>(board.sideToMove());
+            int apt = static_cast<int>(board.at(move.from()).type());
+            int vpt = static_cast<int>(board.at(move.to()).type());
+            cap_hist = capture_hist[col][apt][move.to().index()][vpt];
+        }
         if (winning)
-            return 7'000'000 + victim_val * 10 - attacker_val;
+            return 7'000'000 + victim_val * 10 - attacker_val + cap_hist / 16;
         else
-            return 1'000 + victim_val * 10 - attacker_val; // Losing captures below quiet
+            return 1'000 + victim_val * 10 - attacker_val + cap_hist / 16;
     }
 
     // Killer moves
@@ -523,17 +533,25 @@ int score_move(const Board& board, const Move& move, Move tt_move, int ply, Move
         counter_moves[prev_move.from().index()][prev_move.to().index()] == move)
         return 5'800'000;
 
-    // History heuristic
+    // History + Continuation History
     int hist = history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()];
+    chess::Piece cur_piece = board.at(move.from());
+    if (prev_piece != Piece::NONE && prev_move != Move::NULL_MOVE
+        && prev_piece.type() != chess::PieceType::NONE
+        && cur_piece != Piece::NONE && cur_piece.type() != chess::PieceType::NONE) {
+        int pp = static_cast<int>(prev_piece.type());
+        int cp = static_cast<int>(cur_piece.type());
+        if (pp >= 0 && pp < 6 && cp >= 0 && cp < 6)
+            hist += cont_hist[pp][prev_move.to().index()][cp][move.to().index()];
+    }
     return hist;
 }
 
-void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_MOVE, int ply = -1, Move prev_move = Move::NULL_MOVE) {
+void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_MOVE, int ply = -1, Move prev_move = Move::NULL_MOVE, chess::Piece prev_piece = Piece::NONE) {
     int n = moves.size();
-    // Score all moves once, then sort (faster than insertion sort with per-compare scoring)
     std::vector<std::pair<int, int>> scored(n);
     for (int i = 0; i < n; ++i)
-        scored[i] = {score_move(board, moves[i], tt_move, ply, prev_move), i};
+        scored[i] = {score_move(board, moves[i], tt_move, ply, prev_move, prev_piece), i};
     std::sort(scored.begin(), scored.end(), [](const auto& a, const auto& b){ return a.first > b.first; });
     Movelist tmp = moves;
     for (int i = 0; i < n; ++i) moves[i] = tmp[scored[i].second];
@@ -634,24 +652,28 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 
     bool in_check = board.inCheck();
 
-    // Check extension
-    if (in_check) depth++;
-
-    if (depth <= 0) return quiescence(board, alpha, beta, acc);
-
     // Compute static eval for pruning (avoid if in check)
     int static_eval = 0;
-    if (!in_check) static_eval = evaluate(board, acc);
+    if (!in_check) {
+        static_eval = evaluate(board, acc);
+        static_eval_stack[ply] = static_eval;
+    }
 
-    // Reverse futility pruning (static null-move pruning)
+    // Improving flag: are we doing better than 2 plies ago?
+    bool improving = false;
+    if (!in_check && ply >= 2 && static_eval_stack[ply - 2] != 0)
+        improving = static_eval > static_eval_stack[ply - 2];
+
+    // Reverse futility pruning (tighten when not improving)
     if (!is_pv && !in_check && depth <= 8 && ply > 0) {
-        if (static_eval - opt_rfp_margin * depth >= beta) {
+        int rfp_margin = opt_rfp_margin * depth - (improving ? opt_rfp_margin / 2 : 0);
+        if (static_eval - rfp_margin >= beta) {
             return static_eval;
         }
     }
 
-    // Null-move pruning
-    if (allow_null && !is_pv && !in_check && ply > 0 && depth >= 3) {
+    // Null-move pruning (skip when not improving — position already bad)
+    if (allow_null && !is_pv && !in_check && ply > 0 && depth >= 3 && improving) {
         bool has_pieces = board.pieces(PieceType::KNIGHT).count() +
                           board.pieces(PieceType::BISHOP).count() +
                           board.pieces(PieceType::ROOK).count() +
@@ -669,8 +691,10 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
             }
         }
     }
+    // Check extension (placed after static eval so depth is correct)
+    if (in_check) depth++;
+    if (depth <= 0) return quiescence(board, alpha, beta, acc);
 
-    // Internal Iterative Deepening: if no TT move and deep node, search shallower first
     if (!is_pv && tt_move == Move::NULL_MOVE && depth >= 5) {
         negamax(board, depth - 4, alpha, beta, ply, false, acc, prev_move);
         tt_move = probe_tt_move(hash);
@@ -697,7 +721,15 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         return in_check ? (-MATE_SCORE + ply) : 0; // Checkmate or stalemate
     }
 
-    sort_moves(board, moves, tt_move, ply, prev_move);
+    // Get previous piece for continuation history lookups
+    chess::Piece prev_piece = Piece::NONE;
+    if (prev_move != Move::NULL_MOVE) {
+        prev_piece = board.at(prev_move.to());
+        // After a null-move or en-passant the square may be empty — guard against it
+        if (prev_piece == Piece::NONE) prev_piece = Piece::NONE;
+    }
+
+    sort_moves(board, moves, tt_move, ply, prev_move, prev_piece);
 
     int best_score    = -INF;
     Move best_move    = Move::NULL_MOVE;
@@ -712,6 +744,20 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 
         bool is_capture  = board.isCapture(move) || move.typeOf() == Move::ENPASSANT;
         bool is_promo    = move.typeOf() == Move::PROMOTION;
+
+        // ── Pre-makeMove pruning ─────────────────────────────────────────────
+        if (!is_root && !in_check && !is_capture && !is_promo && move_count > 1) {
+            // SEE-based quiet move pruning at low depth (MUST be before makeMove)
+            if (depth <= 6 && !see_ge(board, move, -50 * depth)) continue;
+
+            // Futility pruning: skip quiet moves that can't improve alpha
+            if (depth <= 8 && static_eval + fp_margin <= alpha) continue;
+
+            // Late move pruning: skip very late quiet moves at low depth
+            if (!is_pv && depth <= 4 && move_count > 4 + depth * depth) continue;
+        }
+        // ────────────────────────────────────────────────────────────────────
+
 
         nnue::Accumulator next_acc;
         chess::Piece piece = board.at(move.from());
@@ -728,21 +774,6 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
         int extension = 0;
         if (tt_is_singular && move == tt_move) extension = 1;
 
-        // Futility pruning (forward): skip quiet moves that can't improve alpha
-        if (!is_root && !in_check && !gives_check && !is_capture && !is_promo
-            && depth <= 8 && move_count > 1)
-        {
-            if (static_eval + fp_margin <= alpha) {
-                board.unmakeMove(move);
-                continue;
-            }
-            // Late move pruning: skip very late quiet moves at low depth
-            if (!is_pv && depth <= 4 && move_count > 4 + depth * depth) {
-                board.unmakeMove(move);
-                continue;
-            }
-        }
-
         int score;
         if (move_count == 1) {
             // PV node: full window
@@ -756,8 +787,8 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                 R = 1 + static_cast<int>(std::log(depth) * std::log(move_count) * 100.0 / opt_lmr_mult);
                 R = std::min(R, depth - 2);
                 R = std::max(R, 1);
-                // Don't reduce PV nodes or history-backed moves as much
-                if (is_pv) R--;
+                if (is_pv) R--;              // PV nodes: reduce less
+                if (!improving) R++;         // Not improving: reduce more
             }
 
             // Null-window search
@@ -792,10 +823,40 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                 if (prev_move != Move::NULL_MOVE) {
                     counter_moves[prev_move.from().index()][prev_move.to().index()] = move;
                 }
-                // History bonus: depth^2, with bonus scaled by depth
+                // History bonus: scaled by depth^2
                 int bonus = depth * depth;
-                history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()]
-                    += bonus - history_table[static_cast<int>(board.sideToMove())][move.from().index()][move.to().index()] * bonus / 16384;
+                int col = static_cast<int>(board.sideToMove());
+                auto& h = history_table[col][move.from().index()][move.to().index()];
+                h += bonus - h * bonus / 16384;
+                // Continuation history bonus
+                if (prev_piece != Piece::NONE && prev_move != Move::NULL_MOVE
+                    && prev_piece.type() != chess::PieceType::NONE) {
+                    chess::Piece mover = board.at(move.from());
+                    if (mover != Piece::NONE && mover.type() != chess::PieceType::NONE) {
+                        int pp = static_cast<int>(prev_piece.type());
+                        int cp = static_cast<int>(mover.type());
+                        if (pp >= 0 && pp < 6 && cp >= 0 && cp < 6) {
+                            auto& ch = cont_hist[pp][prev_move.to().index()][cp][move.to().index()];
+                            ch += bonus - ch * bonus / 16384;
+                        }
+                    }
+                }
+                // History malus: penalize quiet moves that did NOT cause a cutoff
+                int malus = -(depth * depth);
+                for (const auto& m2 : moves) {
+                    if (m2 == move) break; // only penalize moves searched before the cutoff
+                    if (board.isCapture(m2) || m2.typeOf() == Move::PROMOTION) continue;
+                    auto& hm = history_table[col][m2.from().index()][m2.to().index()];
+                    hm += malus - hm * malus / 16384;
+                }
+            } else if (is_capture && board.at(move.to()) != Piece::NONE) {
+                // Capture history bonus
+                int bonus = depth * depth;
+                int col = static_cast<int>(board.sideToMove());
+                int apt = static_cast<int>(board.at(move.from()).type());
+                int vpt = static_cast<int>(board.at(move.to()).type());
+                auto& ch = capture_hist[col][apt][move.to().index()][vpt];
+                ch += bonus - ch * bonus / 16384;
             }
             break;
         }
@@ -1015,6 +1076,11 @@ int main() {
             tt_clear();
             std::fill(&history_table[0][0][0], &history_table[0][0][0] + sizeof(history_table) / sizeof(int), 0);
             std::fill(&counter_moves[0][0], &counter_moves[0][0] + sizeof(counter_moves) / sizeof(Move), Move::NULL_MOVE);
+            std::memset(cont_hist, 0, sizeof(cont_hist));
+            std::memset(capture_hist, 0, sizeof(capture_hist));
+            std::memset(static_eval_stack, 0, sizeof(static_eval_stack));
+
+
         } else if (command == "position") {
             std::string token;
             ss >> token;
