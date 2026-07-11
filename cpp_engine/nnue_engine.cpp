@@ -556,13 +556,14 @@ void sort_moves(const Board& board, Movelist& moves, Move tt_move = Move::NULL_M
     }
 }
 
-// ─── Evaluation ───────────────────────────────────────────────────────────────
+
+// ─── Piece-Square Tables (PeSTO style, tapered eval) ─────────────────────────
 int evaluate(const Board& board, const nnue::Accumulator& acc) {
     int classical = classical_evaluate(board);
     int nnue_score = nnue::evaluate(acc, board.sideToMove());
-    // 50% classical, 50% NNUE
-    return (classical + nnue_score) / 2;
+    return classical;
 }
+
 
 // ─── Quiescence Search ────────────────────────────────────────────────────────
 int quiescence(Board& board, int alpha, int beta, nnue::Accumulator acc, int ply = 0) {
@@ -905,10 +906,9 @@ void helper_thread_loop(int thread_id) {
         my_job_id = pool_job_id;
         
         Board b = pool_board;
-        int t = pool_target_ms;
         lock.unlock();
         
-        search_worker(b, t);
+        search_worker(b, 0);
         
         lock.lock();
         active_helpers--;
@@ -939,11 +939,10 @@ void resize_thread_pool(int new_threads) {
     }
 }
 
-void start_helper_threads(const Board& b, int t) {
+void start_helper_threads(const Board& b) {
     if (num_threads <= 1) return;
     std::unique_lock<std::mutex> lock(pool_mutex);
     pool_board = b;
-    pool_target_ms = t;
     active_helpers = num_threads - 1;
     pool_job_id++;
     pool_cv_threads.notify_all();
@@ -956,7 +955,7 @@ void wait_helper_threads() {
 }
 
 // ─── Iterative Deepening + Aspiration Windows ─────────────────────────────────
-Move search_best_move(Board& board, int target_ms) {
+Move search_best_move(Board& board, int soft_limit, int hard_limit) {
     Move best_move     = Move::NULL_MOVE;
     nodes              = 0;
     abort_search       = false;
@@ -971,14 +970,16 @@ Move search_best_move(Board& board, int target_ms) {
     std::fill(&killer_moves[0][0], &killer_moves[0][0] + sizeof(killer_moves) / sizeof(Move), Move::NULL_MOVE);
 
     auto start = std::chrono::high_resolution_clock::now();
-    end_time   = start + std::chrono::milliseconds(std::max(1, target_ms - MOVE_OVERHEAD));
+    end_time   = start + std::chrono::milliseconds(std::max(1, hard_limit));
 
     nnue::Accumulator root_acc;
     nnue::init_accumulator(board, root_acc);
 
     int previous_score = 0;
+    int best_move_stable_count = 0;
+    Move last_best_move = Move::NULL_MOVE;
 
-    start_helper_threads(board, target_ms);
+    start_helper_threads(board);
 
     for (int depth = 1; depth <= 64; ++depth) {
         int alpha, beta;
@@ -1022,6 +1023,13 @@ Move search_best_move(Board& board, int target_ms) {
         Move found = probe_tt_move(board.hash());
         if (found != Move::NULL_MOVE) best_move = found;
 
+        if (best_move == last_best_move) {
+            best_move_stable_count++;
+        } else {
+            best_move_stable_count = 0;
+            last_best_move = best_move;
+        }
+
         auto now = std::chrono::high_resolution_clock::now();
         int elapsed_ms = static_cast<int>(std::chrono::duration<double>(now - start).count() * 1000);
         long long nps  = (elapsed_ms > 0) ? (nodes.load() * 1000LL / elapsed_ms) : 0;
@@ -1035,9 +1043,12 @@ Move search_best_move(Board& board, int target_ms) {
                   << "\n";
         std::cout.flush();
 
-        // Stop early if mate found or more than half time is used
+        // Stop early if mate found
         if (score > MATE_SCORE - 200 || score < -MATE_SCORE + 200) break;
-        if (elapsed_ms > target_ms / 2) break;
+        
+        // Time management limits
+        if (elapsed_ms >= soft_limit) { abort_search = true; break; }
+        if (best_move_stable_count >= 3 && elapsed_ms >= soft_limit * 6 / 10) { abort_search = true; break; }
     }
 
     // Safety: if somehow no move was found, play first legal
@@ -1146,19 +1157,22 @@ int main() {
                 else if (token == "movestogo") ss >> movestogo;
             }
 
-            int target_ms;
+            int soft_limit, hard_limit;
             if (movetime > 0) {
-                target_ms = movetime - MOVE_OVERHEAD;
+                soft_limit = movetime - MOVE_OVERHEAD;
+                hard_limit = movetime - MOVE_OVERHEAD;
             } else if (wtime > 0 || btime > 0) {
                 int my_time = (board.sideToMove() == chess::Color::WHITE) ? wtime : btime;
                 int my_inc  = (board.sideToMove() == chess::Color::WHITE) ? winc  : binc;
-                int moves_left = (movestogo > 0) ? movestogo : 30;
-                // Budget: time/moves_left + inc*0.8, with floor/ceiling
-                target_ms = my_time / moves_left + (my_inc * 4) / 5;
-                target_ms = std::max(50, std::min(target_ms, my_time / 4));
+                int moves_left = (movestogo > 0) ? movestogo : 40;
+                soft_limit = my_time / moves_left + (my_inc * 3) / 4;
+                hard_limit = my_time / 4;
             } else {
-                target_ms = 5000; // Analysis mode
+                soft_limit = 5000; // Analysis mode
+                hard_limit = 5000;
             }
+            soft_limit = std::max(50, soft_limit);
+            hard_limit = std::max(50, hard_limit);
 
             chess::Move best = get_book_move(board, "book.bin");
             if (best != chess::Move::NULL_MOVE) {
@@ -1166,7 +1180,7 @@ int main() {
                 std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
                 std::cout.flush();
             } else {
-                best = search_best_move(board, target_ms);
+                best = search_best_move(board, soft_limit, hard_limit);
                 std::cout << "bestmove " << chess::uci::moveToUci(best) << "\n";
                 std::cout.flush();
             }
