@@ -40,6 +40,9 @@
 #include "chess.hpp"
 #include "nnue.hpp"
 #include "polyglot.hpp"
+extern "C" {
+#include "tbprobe.h"
+}
 
 using namespace chess;
 
@@ -140,6 +143,41 @@ bool probe_tt(uint64_t hash, int depth, int alpha, int beta, int ply, int& score
 }
 
 int num_threads = 1;
+
+// ─── Syzygy Tablebase ─────────────────────────────────────────────────────────
+std::string syzygy_path = "";
+bool tb_enabled = false;
+// TB_LARGEST is set by tbprobe after init; we mirror it here for convenience
+int tb_pieces = 0;
+
+// Convert board to tablebase probe bitboards and call tb_probe_wdl.
+// Returns TB_WIN/TB_DRAW/TB_LOSS/TB_BLESSED_LOSS/TB_CURSED_WIN, or -1 on failure.
+static int probe_wdl(const Board& board) {
+    if (!tb_enabled) return -1;
+    // Count pieces; skip if too many
+    int cnt = board.occ().count();
+    if (cnt > tb_pieces) return -1;
+    // Castling rights disqualify the probe
+    if (!board.castlingRights().isEmpty()) return -1;
+
+
+    uint64_t white   = board.us(Color::WHITE).getBits();
+    uint64_t black   = board.us(Color::BLACK).getBits();
+    uint64_t kings   = board.pieces(PieceType::KING).getBits();
+    uint64_t queens  = board.pieces(PieceType::QUEEN).getBits();
+    uint64_t rooks   = board.pieces(PieceType::ROOK).getBits();
+    uint64_t bishops = board.pieces(PieceType::BISHOP).getBits();
+    uint64_t knights = board.pieces(PieceType::KNIGHT).getBits();
+    uint64_t pawns   = board.pieces(PieceType::PAWN).getBits();
+    unsigned ep      = board.enpassantSq() == Square::underlying::NO_SQ ? 0
+                     : board.enpassantSq().index();
+    bool turn        = (board.sideToMove() == Color::WHITE);
+
+    unsigned res = tb_probe_wdl(white, black, kings, queens, rooks, bishops, knights, pawns,
+                                0 /*castling*/, ep, turn);
+    if (res == TB_RESULT_FAILED) return -1;
+    return static_cast<int>(res);
+}
 
 // ─── Tunable Search Parameters ────────────────────────────────────────────────
 int opt_rfp_margin = 80;
@@ -757,6 +795,33 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
 
     uint64_t hash = board.hash();
     __builtin_prefetch(&TT[(hash & (TT_MASK >> 1)) * 2]);
+
+    // ── Syzygy WDL probe ──────────────────────────────────────────────────────
+    if (!is_root && excluded_move == Move::NULL_MOVE) {
+        int wdl = probe_wdl(board);
+        if (wdl != -1) {
+            int tb_score;
+            if      (wdl == TB_WIN)          tb_score =  MATE_SCORE - 1000 + ply;
+            else if (wdl == TB_CURSED_WIN)   tb_score =  1;
+            else if (wdl == TB_LOSS)         tb_score = -(MATE_SCORE - 1000 + ply);
+            else if (wdl == TB_BLESSED_LOSS) tb_score = -1;
+            else                             tb_score =  0;
+
+            TTEntry::Flag flag = (wdl == TB_WIN || wdl == TB_CURSED_WIN)   ? TTEntry::LOWER
+                               : (wdl == TB_LOSS || wdl == TB_BLESSED_LOSS) ? TTEntry::UPPER
+                               : TTEntry::EXACT;
+            if (flag == TTEntry::EXACT ||
+               (flag == TTEntry::LOWER && tb_score >= beta) ||
+               (flag == TTEntry::UPPER && tb_score <= alpha)) {
+                write_tt(hash, Move::NULL_MOVE, depth, tb_score, flag, ply);
+                return tb_score;
+            }
+            if (flag == TTEntry::LOWER && tb_score > alpha) alpha = tb_score;
+            if (flag == TTEntry::UPPER && tb_score < beta)  beta  = tb_score;
+        }
+    }
+
+
     
     Move tt_move = Move::NULL_MOVE;
     int tt_depth = 0;
@@ -1212,6 +1277,99 @@ Move search_best_move(Board& board, int soft_limit, int hard_limit) {
 
     start_helper_threads(board);
 
+    // ── Syzygy DTZ root probe ─────────────────────────────────────────────────
+    // If the root position is in the tablebases, pick the best move immediately
+    // using DTZ (Distance To Zero) for optimal conversion.
+    if (tb_enabled) {
+        int piece_cnt = board.occ().count();
+        if (piece_cnt <= tb_pieces && board.castlingRights().isEmpty()) {
+            uint64_t white   = board.us(Color::WHITE).getBits();
+            uint64_t black   = board.us(Color::BLACK).getBits();
+            uint64_t kings   = board.pieces(PieceType::KING).getBits();
+            uint64_t queens  = board.pieces(PieceType::QUEEN).getBits();
+            uint64_t rooks   = board.pieces(PieceType::ROOK).getBits();
+            uint64_t bishops = board.pieces(PieceType::BISHOP).getBits();
+            uint64_t knights = board.pieces(PieceType::KNIGHT).getBits();
+            uint64_t pawns   = board.pieces(PieceType::PAWN).getBits();
+            unsigned ep      = board.enpassantSq() == Square::underlying::NO_SQ ? 0
+                             : board.enpassantSq().index();
+            bool turn        = (board.sideToMove() == Color::WHITE);
+            unsigned rule50  = board.halfMoveClock();
+
+            unsigned results[TB_MAX_MOVES];
+            unsigned tb_res = tb_probe_root(white, black, kings, queens, rooks, bishops, knights,
+                                            pawns, rule50, 0, ep, turn, results);
+
+            if (tb_res != TB_RESULT_FAILED) {
+                // Find the result with best WDL, then lowest DTZ (fastest conversion)
+                int best_wdl = -1;
+                unsigned best_dtz = 0xFFF;
+                unsigned best_res = TB_RESULT_FAILED;
+                for (unsigned* r = results; *r != TB_RESULT_FAILED; ++r) {
+                    int wdl = (int)TB_GET_WDL(*r);
+                    unsigned dtz = TB_GET_DTZ(*r);
+                    if (wdl > best_wdl || (wdl == best_wdl && dtz < best_dtz)) {
+                        best_wdl = wdl;
+                        best_dtz = dtz;
+                        best_res = *r;
+                    }
+                }
+
+                if (best_res != TB_RESULT_FAILED) {
+                    unsigned from_sq  = TB_GET_FROM(best_res);
+                    unsigned to_sq    = TB_GET_TO(best_res);
+                    unsigned promotes = TB_GET_PROMOTES(best_res);
+                    unsigned ep_flag  = TB_GET_EP(best_res);
+
+                    Square from_s(from_sq);
+                    Square to_s(to_sq);
+                    Move tb_best = Move::NULL_MOVE;
+                    if (promotes != TB_PROMOTES_NONE) {
+                        PieceType promo = (promotes == TB_PROMOTES_QUEEN)  ? PieceType::QUEEN  :
+                                          (promotes == TB_PROMOTES_ROOK)   ? PieceType::ROOK   :
+                                          (promotes == TB_PROMOTES_BISHOP) ? PieceType::BISHOP :
+                                                                             PieceType::KNIGHT;
+                        tb_best = Move::make<Move::PROMOTION>(from_s, to_s, promo);
+                    } else if (ep_flag) {
+                        tb_best = Move::make<Move::ENPASSANT>(from_s, to_s);
+                    } else {
+                        tb_best = Move::make<Move::NORMAL>(from_s, to_s);
+                    }
+
+                    int tb_cp = (best_wdl == TB_WIN)          ?  (MATE_SCORE - 1000) :
+                                (best_wdl == TB_CURSED_WIN)   ?   1                  :
+                                (best_wdl == TB_LOSS)         ? -(MATE_SCORE - 1000) :
+                                (best_wdl == TB_BLESSED_LOSS) ?  -1                  : 0;
+
+                    std::string wdl_str = (best_wdl == TB_WIN)          ? "win"  :
+                                          (best_wdl == TB_CURSED_WIN)   ? "draw" :
+                                          (best_wdl == TB_LOSS)         ? "loss" :
+                                          (best_wdl == TB_BLESSED_LOSS) ? "draw" : "draw";
+
+                    std::string score_str;
+                    if (tb_cp > MATE_SCORE - 200)
+                        score_str = "mate " + std::to_string((MATE_SCORE - tb_cp + 1) / 2);
+                    else if (tb_cp < -(MATE_SCORE - 200))
+                        score_str = "mate -" + std::to_string((MATE_SCORE + tb_cp + 1) / 2);
+                    else
+                        score_str = "cp " + std::to_string(tb_cp);
+
+                    std::cout << "info depth 1 score " << score_str
+                              << " tbwdl " << wdl_str
+                              << " tbdtz " << best_dtz
+                              << " nodes 1 pv " << uci::moveToUci(tb_best) << "\n";
+                    std::cout.flush();
+                    std::cout << "bestmove " << uci::moveToUci(tb_best) << "\n";
+                    std::cout.flush();
+                    // Signal abort so the outer go() loop exits cleanly
+                    abort_search = true;
+                    return tb_best;
+                }
+            }
+        }
+    }
+
+
     for (int depth = 1; depth <= 64; ++depth) {
         int alpha, beta;
 
@@ -1388,6 +1546,7 @@ int main() {
                       << "option name FP_Margin_Base type spin default 100 min 10 max 300\n"
                       << "option name FP_Margin_Mult type spin default 60 min 10 max 200\n"
                       << "option name EvalFile type string default nn-82215d0fd0df.nnue\n"
+                      << "option name SyzygyPath type string default <empty>\n"
                       << "uciok\n";
         } else if (command == "setoption") {
             std::string name, name_val, value, val_val;
@@ -1417,6 +1576,23 @@ int main() {
                     std::cout << "info string Loaded NNUE from " << val_val << "\n";
                 } catch (const std::exception& e) {
                     std::cout << "info string Failed to load NNUE: " << e.what() << "\n";
+                }
+            } else if (name_val == "SyzygyPath") {
+                // val_val may only be the first token; rebuild full value from rest of line
+                std::string full_path = val_val;
+                std::string extra;
+                while (ss >> extra) full_path += " " + extra;
+                syzygy_path = full_path;
+                if (!syzygy_path.empty() && syzygy_path != "<empty>") {
+                    if (syzygy_tb_init(syzygy_path.c_str())) {
+                        tb_enabled = true;
+                        tb_pieces  = static_cast<int>(TB_LARGEST);
+                        std::cout << "info string Syzygy TBs loaded from '" << syzygy_path
+                                  << "' (" << TB_LARGEST << "-piece)\n";
+                    } else {
+                        tb_enabled = false;
+                        std::cout << "info string Failed to load Syzygy TBs from '" << syzygy_path << "'\n";
+                    }
                 }
             }
         } else if (command == "isready") {
