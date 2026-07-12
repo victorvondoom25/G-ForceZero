@@ -149,7 +149,7 @@ int opt_nmp_eval_div = 200;
 int opt_lmr_mult = 225; // 2.25 * 100
 int opt_fp_margin_base = 232;
 int opt_fp_margin_mult = 217;
-int opt_nnue_weight = 60; // NNUE blend weight (0-100)
+int opt_nnue_weight = 100; // NNUE blend weight (0-100)
 
 // ─── LMR Table (precomputed) ──────────────────────────────────────────────────
 int8_t lmr_table[MAX_PLY][64]; // [depth][move_count] — int8_t to fit in L1 cache
@@ -296,7 +296,7 @@ int static_exchange_eval(const Board& board, Move move) {
     }
 
     while (--d) {
-        gain[d - 1] = std::max(-gain[d], gain[d - 1]);
+        gain[d - 1] = -std::max(gain[d], -gain[d - 1]);
     }
 
     return gain[0];
@@ -685,7 +685,15 @@ int quiescence(Board& board, int alpha, int beta, const nnue::Accumulator& acc, 
     if (stand_pat > alpha) alpha = stand_pat;
 
     Movelist moves;
-    movegen::legalmoves<movegen::MoveGenType::CAPTURE>(moves, board);
+    Movelist all_moves;
+    movegen::legalmoves<movegen::MoveGenType::ALL>(all_moves, board);
+    for (int i = 0; i < all_moves.size(); ++i) {
+        Move m = all_moves[i];
+        bool is_passed_push = (m.typeOf() == Move::NORMAL && board.at(m.from()).type() == chess::PieceType::PAWN && (m.to().rank() == chess::Rank::RANK_7 || m.to().rank() == chess::Rank::RANK_2));
+        if (board.isCapture(m) || m.typeOf() == Move::ENPASSANT || m.typeOf() == Move::PROMOTION || is_passed_push) {
+            moves.add(m);
+        }
+    }
     
     int n = moves.size();
     ScoredMove scored[256];
@@ -1004,7 +1012,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                 pv_table[ply][ply] = move;
                 for (int i = ply + 1; i < pv_length[ply + 1]; ++i)
                     pv_table[ply][i] = pv_table[ply + 1][i];
-                pv_length[ply] = pv_length[ply + 1];
+                pv_length[ply] = std::max(ply + 1, pv_length[ply + 1]);
             }
         }
         if (score > alpha) alpha = score;
@@ -1419,6 +1427,14 @@ int main() {
             std::fill(&history_table[0][0][0], &history_table[0][0][0] + sizeof(history_table) / sizeof(int), 0);
             std::fill(&counter_moves[0][0], &counter_moves[0][0] + sizeof(counter_moves) / sizeof(Move), Move::NULL_MOVE);
             std::memset(cont_hist, 0, sizeof(cont_hist));
+        } else if (command == "eval") {
+            nnue::Accumulator acc;
+            nnue::init_accumulator(board, acc);
+            int classical = classical_evaluate(board);
+            int nnue_score = nnue::evaluate(acc, board.sideToMove());
+            nnue_score = (nnue_score * 100) / 208;
+            int blended = evaluate(board, acc);
+            std::cout << "Classical eval: " << classical << "\nNNUE eval: " << nnue_score << "\nBlended: " << blended << "\n";
         } else if (command == "position") {
             std::string token;
             ss >> token;

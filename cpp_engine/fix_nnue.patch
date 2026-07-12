@@ -1,0 +1,30 @@
+--- nnue.cpp
++++ nnue.cpp
+@@ -107,13 +107,13 @@
+ 
+ int get_piece_idx(chess::Color perspective, chess::Piece piece) {
+     int pt = static_cast<int>(piece.type()); // Pawn=0, Knight=1, Bishop=2, Rook=3, Queen=4
+     bool is_mine = (piece.color() == perspective);
+-    return is_mine ? pt : pt + 5;
++    return pt * 2 + (is_mine ? 0 : 1);
+ }
+ 
+ int get_feature_index(chess::Color perspective, chess::Piece piece, chess::Square sq, chess::Square king_sq) {
+     if (piece == chess::Piece::NONE || piece.type() == chess::PieceType::KING) return -1;
+ 
+     int sq_idx   = sq.index();
+     int k_sq_idx = king_sq.index();
+ 
+-    if (perspective == chess::Color::BLACK) {
+-        sq_idx   ^= 63;
+-        k_sq_idx ^= 63;
+-    }
++    if (perspective == chess::Color::BLACK) {
++        sq_idx   ^= 63;
++        k_sq_idx ^= 63;
++    }
+ 
+     int pt_idx = get_piece_idx(perspective, piece);
+-    return k_sq_idx * 641 + pt_idx * 64 + sq_idx;
++    return k_sq_idx * 641 + pt_idx * 64 + sq_idx + 1;
+ }
