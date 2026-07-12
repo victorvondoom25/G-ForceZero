@@ -1,3 +1,0 @@
-#!/bin/bash
-sed -i 's/if (board.isCapture(m) || m.typeOf() == Move::ENPASSANT)/if (board.isCapture(m) || m.typeOf() == Move::ENPASSANT || m.typeOf() == Move::PROMOTION)/g' nnue_engine.cpp
-sed -i 's/movegen::legalmoves<movegen::MoveGenType::CAPTURE>(moves, board);/Movelist all_moves;\n            movegen::legalmoves<movegen::MoveGenType::ALL>(all_moves, board);\n            for (int i = 0; i < all_moves.size(); ++i) {\n                Move m = all_moves[i];\n                if (board.isCapture(m) || m.typeOf() == Move::ENPASSANT || m.typeOf() == Move::PROMOTION) {\n                    moves.add(m);\n                }\n            }/g' nnue_engine.cpp

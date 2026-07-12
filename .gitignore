@@ -31,3 +31,5 @@ play_match.py
 /Stockfish
 /cpp_engine/Stockfish-master
 cpp_engine/nn-af1339a6dea3.nnue
+cpp_engine/build/
+*.o
