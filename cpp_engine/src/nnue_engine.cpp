@@ -815,7 +815,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     // Guard against excessive ply depth
     if (ply >= MAX_PLY - 1) return evaluate(board, acc);
 
-    if (!is_root && (board.isHalfMoveDraw() || board.isRepetition())) return 0;
+    if (!is_root && (board.isHalfMoveDraw() || board.isRepetition(1))) return 0;
 
     uint64_t hash = board.hash();
     __builtin_prefetch(&TT[(hash & (TT_MASK >> 1)) * 2]);
