@@ -58,7 +58,8 @@ while iteration <= MAX_ITERATIONS:
     # Call the PyTorch trainer. 
     # train_halfkp.py automatically handles atomic saving (os.replace) to brain.nnue
     # so even if you Ctrl-C during training, brain.nnue is never corrupted.
-    ret = os.system("../venv/bin/python3 trainer/train_halfkp.py current_dataset.bin")
+    import sys
+    ret = os.system(f"{sys.executable} trainer/train_halfkp.py current_dataset.bin")
     
     if ret != 0:
         print("\n[!] Training was interrupted (Ctrl-C) or failed. Safely exiting autopilot.")
