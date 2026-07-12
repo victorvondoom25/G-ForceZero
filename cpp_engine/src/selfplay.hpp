@@ -26,6 +26,7 @@ struct PackedPosition {
 
 extern chess::Move search_best_move(chess::Board& board, int soft_limit, int hard_limit);
 extern int last_search_score;
+extern bool is_selfplay;
 
 inline void generate_selfplay(int num_games, int depth, const std::string& output_file) {
     std::ofstream out(output_file, std::ios::binary | std::ios::app);
@@ -37,6 +38,7 @@ inline void generate_selfplay(int num_games, int depth, const std::string& outpu
     std::mt19937 rng(1337);
     std::cout << "Starting self-play generation of " << num_games << " games...\n";
     
+    is_selfplay = true;
     int games_completed = 0;
     while (games_completed < num_games) {
         chess::Board board;
@@ -110,10 +112,12 @@ inline void generate_selfplay(int num_games, int depth, const std::string& outpu
         }
 
         games_completed++;
-        if (games_completed % 100 == 0) {
-            std::cout << "Generated " << games_completed << " / " << num_games << " games.\n";
-            out.flush();
+        if (games_completed % 10 == 0 || games_completed == num_games) {
+            std::cout << "Completed " << games_completed << " / " << num_games << " games...\n";
+            std::cout.flush();
         }
     }
+    
+    is_selfplay = false;
     std::cout << "Self-play generation complete. Data written to " << output_file << "\n";
 }

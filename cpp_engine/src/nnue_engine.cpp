@@ -191,6 +191,7 @@ int opt_lmr_mult = 225; // 2.25 * 100
 int opt_fp_margin_base = 232;
 int opt_fp_margin_mult = 217;
 int opt_nnue_weight = 100; // NNUE blend weight (0-100)
+bool is_selfplay = false;
 
 // ─── LMR Table (precomputed) ──────────────────────────────────────────────────
 int8_t lmr_table[MAX_PLY][64]; // [depth][move_count] — int8_t to fit in L1 cache
@@ -1450,13 +1451,15 @@ Move search_best_move(Board& board, int soft_limit, int hard_limit) {
         else
             score_str = "cp " + std::to_string(score);
 
-        std::cout << "info depth " << depth
-                  << " score " << score_str
-                  << " nodes " << nodes.load()
-                  << " time " << elapsed_ms
-                  << " nps " << nps
-                  << " pv " << pv_str
-                  << "\n";
+        if (!is_selfplay) {
+            std::cout << "info depth " << depth
+                      << " score " << score_str
+                      << " nodes " << nodes.load()
+                      << " time " << elapsed_ms
+                      << " nps " << nps
+                      << " pv " << pv_str
+                      << "\n";
+        }
         std::cout.flush();
 
         // Stop early if mate found
@@ -1507,11 +1510,11 @@ int main() {
     bool loaded = false;
     for (const auto& path : {
             std::string("raw.bin"),
-            std::string("nn-82215d0fd0df.nnue"),
+            std::string("nn-af1339a6dea3.nnue"),
             std::string("cpp_engine/raw.bin"),
-            std::string("cpp_engine/nn-82215d0fd0df.nnue"),
+            std::string("cpp_engine/nn-af1339a6dea3.nnue"),
             std::string("/app/G-ForceZero/cpp_engine/raw.bin"),
-            std::string("/app/G-ForceZero/cpp_engine/nn-82215d0fd0df.nnue"),
+            std::string("/app/G-ForceZero/cpp_engine/nn-af1339a6dea3.nnue"),
         }) {
         try {
             nnue::load_weights(path);
@@ -1549,7 +1552,7 @@ int main() {
                       << "option name LMR_Mult type spin default 225 min 50 max 500\n"
                       << "option name FP_Margin_Base type spin default 100 min 10 max 300\n"
                       << "option name FP_Margin_Mult type spin default 60 min 10 max 200\n"
-                      << "option name EvalFile type string default nn-82215d0fd0df.nnue\n"
+                      << "option name EvalFile type string default nn-af1339a6dea3.nnue\n"
                       << "option name SyzygyPath type string default <empty>\n"
                       << "uciok\n";
         } else if (command == "setoption") {
