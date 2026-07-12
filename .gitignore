@@ -33,3 +33,5 @@ play_match.py
 cpp_engine/nn-af1339a6dea3.nnue
 cpp_engine/build/
 *.o
+cpp_engine/nnue-probe/
+sf12/
