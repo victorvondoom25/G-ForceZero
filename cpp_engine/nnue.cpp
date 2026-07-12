@@ -51,9 +51,9 @@ static void load_nnue_binary(std::ifstream& file) {
     uint32_t ft_hash;
     file.read(reinterpret_cast<char*>(&ft_hash), 4);
 
-    // fc1: weights (int16) then biases (int16)
-    file.read(reinterpret_cast<char*>(fc1_w), sizeof(fc1_w)); // 41024*256*2 bytes
+    // fc1: biases (int16) then weights (int16)
     file.read(reinterpret_cast<char*>(fc1_b), sizeof(fc1_b)); // 256*2 bytes
+    file.read(reinterpret_cast<char*>(fc1_w), sizeof(fc1_w)); // 41024*256*2 bytes
 
     // Network hash
     uint32_t net_hash;

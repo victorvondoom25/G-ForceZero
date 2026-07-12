@@ -1377,6 +1377,7 @@ int main() {
                       << "option name LMR_Mult type spin default 225 min 50 max 500\n"
                       << "option name FP_Margin_Base type spin default 100 min 10 max 300\n"
                       << "option name FP_Margin_Mult type spin default 60 min 10 max 200\n"
+                      << "option name EvalFile type string default nn-82215d0fd0df.nnue\n"
                       << "uciok\n";
         } else if (command == "setoption") {
             std::string name, name_val, value, val_val;
@@ -1400,6 +1401,13 @@ int main() {
                 opt_fp_margin_base = std::stoi(val_val);
             } else if (name_val == "FP_Margin_Mult") {
                 opt_fp_margin_mult = std::stoi(val_val);
+            } else if (name_val == "EvalFile") {
+                try {
+                    nnue::load_weights(val_val);
+                    std::cout << "info string Loaded NNUE from " << val_val << "\n";
+                } catch (const std::exception& e) {
+                    std::cout << "info string Failed to load NNUE: " << e.what() << "\n";
+                }
             }
         } else if (command == "isready") {
             std::cout << "readyok\n";
