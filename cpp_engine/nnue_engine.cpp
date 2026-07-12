@@ -576,9 +576,11 @@ int evaluate(const Board& board, const nnue::Accumulator& acc) {
     int classical = classical_evaluate(board);
     int nnue_score = nnue::evaluate(acc, board.sideToMove());
     
+    // Convert NNUE internal units to centipawns (Stockfish 12 scale: 1 pawn = 208)
+    nnue_score = (nnue_score * 100) / 208;
+    
     // Blend: weight controlled by opt_nnue_weight (0-100)
-    // NNUE is trained with a scaling factor; classical is in centipawns
-    // We blend them proportionally
+    // Both are now in centipawns
     int w = opt_nnue_weight;
     return (nnue_score * w + classical * (100 - w)) / 100;
 }
