@@ -25,7 +25,7 @@ mp.set_sharing_strategy('file_system')
 
 NUM_FEATURES = 41024  # 641 * 64
 HIDDEN_SIZE  = 256
-BATCH_SIZE   = 4096   # Massive batch size since it fits in VRAM easily (4096 * 40960 elements = ~1.3 GB)
+BATCH_SIZE   = 16384   # Massive batch size (T4 GPU optimized)
 
 # ─── Feature Encoding ─────────────────────────────────────────────────────────
 def fen_to_halfkp(fen):
