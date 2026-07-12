@@ -22,7 +22,7 @@ COPY . /app/G-ForceZero
 
 # Compile the C++ Engine (using high performance flags)
 WORKDIR /app/G-ForceZero/cpp_engine
-RUN g++ -O3 -DNDEBUG -march=x86-64-v3 -flto -pthread -std=c++17 nnue_engine.cpp nnue.cpp tbprobe.cpp -o nnue_engine
+RUN g++ -O3 -DNDEBUG -march=x86-64-v3 -flto -pthread -std=c++17 src/nnue_engine.cpp src/nnue.cpp src/tbprobe.cpp -o nnue_engine
 
 # Clone the official Lichess Bot
 WORKDIR /app
