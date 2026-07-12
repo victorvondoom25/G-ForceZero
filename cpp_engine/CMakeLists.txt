@@ -13,5 +13,5 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -funroll-loops")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto=auto -fno-rtti")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto=auto")
 
-add_executable(nnue_engine nnue_engine.cpp nnue.cpp)
+add_executable(nnue_engine src/nnue_engine.cpp src/nnue.cpp src/tbprobe.cpp)
 target_link_libraries(nnue_engine pthread)
