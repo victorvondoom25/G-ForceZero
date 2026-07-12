@@ -39,6 +39,7 @@ RUN cp /app/G-ForceZero/render/config.yml /app/lichess-bot/config.yml
 RUN cp /app/G-ForceZero/render/keep_alive.py /app/lichess-bot/keep_alive.py
 RUN cp /app/G-ForceZero/render/start.sh /app/lichess-bot/start.sh
 RUN cp /app/G-ForceZero/cpp_engine/raw.bin /app/lichess-bot/raw.bin || true
+RUN cp /app/G-ForceZero/cpp_engine/nn-82215d0fd0df.nnue /app/lichess-bot/nn-82215d0fd0df.nnue || true
 RUN cp /app/G-ForceZero/cpp_engine/book.bin /app/lichess-bot/book.bin || true
 
 # Make start script executable

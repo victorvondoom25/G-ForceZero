@@ -1327,19 +1327,29 @@ int main() {
     // Initialize LMR table
     init_lmr_table();
     
-    try {
-        nnue::load_weights("raw.bin");
-    } catch (...) {
+    // Try loading in order: raw.bin (local), .nnue (direct Stockfish format), Docker paths
+    auto try_load = [](const std::string& path) {
+        std::ifstream f(path, std::ios::binary);
+        return f.good();
+    };
+    bool loaded = false;
+    for (const auto& path : {
+            std::string("raw.bin"),
+            std::string("nn-82215d0fd0df.nnue"),
+            std::string("cpp_engine/raw.bin"),
+            std::string("cpp_engine/nn-82215d0fd0df.nnue"),
+            std::string("/app/G-ForceZero/cpp_engine/raw.bin"),
+            std::string("/app/G-ForceZero/cpp_engine/nn-82215d0fd0df.nnue"),
+        }) {
         try {
-            nnue::load_weights("cpp_engine/raw.bin");
-        } catch (...) {
-            try {
-                nnue::load_weights("/home/sid/Documents/GitHub/G-ForceZero/cpp_engine/raw.bin");
-            } catch (const std::exception& e) {
-                std::cerr << "Fatal error: " << e.what() << "\n";
-                return 1;
-            }
-        }
+            nnue::load_weights(path);
+            loaded = true;
+            break;
+        } catch (...) {}
+    }
+    if (!loaded) {
+        std::cerr << "Fatal error: could not load NNUE weights from any known path!\n";
+        return 1;
     }
     std::cout << "G-ForceZero NNUE Engine ready.\n";
     std::cout.flush();
