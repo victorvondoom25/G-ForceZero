@@ -12,6 +12,15 @@ def process_game(pgn_text):
         return []
         
     result = game.headers.get("Result", "*")
+    w_elo = game.headers.get("WhiteElo", "0")
+    b_elo = game.headers.get("BlackElo", "0")
+    
+    try:
+        if int(w_elo) < 2500 or int(b_elo) < 2500:
+            return [] # Skip games where either player is below 2500 Elo
+    except ValueError:
+        return [] # Skip games with missing or corrupted Elo data
+
     if result == "1-0":
         res_str = '"1.0"'
     elif result == "0-1":
