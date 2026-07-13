@@ -42,12 +42,14 @@ def main(pgn_file, output_file):
     games = []
     current_game = []
     
+    MAX_GAMES = 1000000 # 1 Million games is more than enough for a huge training run!
+    games_processed = 0
+    
     with open(output_file, 'w') as out_f:
         with open(pgn_file, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 current_game.append(line)
                 if line.startswith("1."): # End of headers, start of moves
-                    # Next line usually finishes the game. We'll grab it.
                     pass 
                 elif not line.strip() and len(current_game) > 5 and current_game[-2].startswith("1."):
                     # Game complete
@@ -60,8 +62,13 @@ def main(pgn_file, output_file):
                         for res in results:
                             for epd in res:
                                 out_f.write(epd + "\n")
+                        games_processed += len(games)
                         games = []
                         print(".", end="", flush=True)
+                        
+                        if games_processed >= MAX_GAMES:
+                            print(f"\n[INFO] Reached {MAX_GAMES} games! Stopping parsing so PyTorch has time to train.")
+                            break
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
