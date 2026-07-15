@@ -1555,8 +1555,11 @@ int main() {
     };
     bool loaded = false;
     for (const auto& path : {
-            std::string("nn-0ee0657fb25e.nnue")
+            std::string("brain.nnue"),
+            std::string("nn-0ee0657fb25e.nnue"),
+            std::string("/app/G-ForceZero/cpp_engine_2.0/brain.nnue")
         }) {
+        if (!try_load(path)) continue;
         try {
             nnue::load_weights(path);
             loaded = true;

@@ -46,16 +46,18 @@ void sf_nnue_init(const char* net_path) {
         Position::init();
 
         global_network = std::make_unique<Eval::NNUE::Network>();
-        std::filesystem::path path_to_net;
-        if (net_path) {
-            path_to_net = net_path;
-        } else {
-            path_to_net = EvalFileDefaultName; 
-        }
-
-        global_network->load(std::filesystem::path{}, path_to_net, global_eval_file);
-        sf_initialized = true;
     }
+
+    std::filesystem::path path_to_net;
+    if (net_path) {
+        path_to_net = net_path;
+    } else {
+        path_to_net = EvalFileDefaultName; 
+    }
+
+    global_network->load(std::filesystem::path{}, path_to_net, global_eval_file);
+    
+    sf_initialized = true;
 }
 
 void* sf_nnue_create_accumulator(const char* fen) {
