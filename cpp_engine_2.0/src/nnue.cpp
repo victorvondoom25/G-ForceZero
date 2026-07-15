@@ -40,12 +40,9 @@ void undo_null_move_accumulator(Accumulator& acc) {
 int evaluate(const Accumulator& acc, chess::Color side_to_move) {
     if (!acc.acc_ptr) return 0;
     int score = sf_nnue_evaluate(acc.acc_ptr);
-    // Stockfish evaluate() returns score from white's perspective.
-    // We need to return score from side_to_move's perspective!
-    // Wait, Stockfish eval() returns from side_to_move perspective actually!
-    // Let's assume side_to_move, if it's White perspective we flip it.
-    // Let's check: sf_nnue_evaluate actually returns relative to side to move in sf 16.
-    return score;
+    // Stockfish 16.1 evaluate() returns score from White's perspective!
+    // We need to return score from side_to_move's perspective.
+    return (side_to_move == chess::Color::WHITE) ? score : -score;
 }
 
 } // namespace nnue
