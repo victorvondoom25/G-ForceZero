@@ -21,9 +21,8 @@ WORKDIR /app
 COPY . /app/G-ForceZero
 
 # Compile the C++ Engine (using high performance flags)
-WORKDIR /app/G-ForceZero/cpp_engine
-RUN g++ -O3 -DNDEBUG -march=x86-64-v3 -flto -pthread -std=c++17 src/nnue_engine.cpp src/nnue.cpp src/tbprobe.cpp -o nnue_engine
-
+WORKDIR /app/G-ForceZero/cpp_engine_2.0
+RUN mkdir build && cd build && cmake .. && make -j4
 # Clone the official Lichess Bot
 WORKDIR /app
 RUN git clone https://github.com/lichess-bot/lichess-bot.git
@@ -38,9 +37,8 @@ RUN pip3 install Flask
 RUN cp /app/G-ForceZero/render/config.yml /app/lichess-bot/config.yml
 RUN cp /app/G-ForceZero/render/keep_alive.py /app/lichess-bot/keep_alive.py
 RUN cp /app/G-ForceZero/render/start.sh /app/lichess-bot/start.sh
-RUN cp /app/G-ForceZero/cpp_engine/brain.nnue /app/lichess-bot/brain.nnue || true
-RUN cp /app/G-ForceZero/cpp_engine/book.bin /app/lichess-bot/book.bin || true
-
+RUN cp /app/G-ForceZero/cpp_engine_2.0/brain.nnue /app/lichess-bot/brain.nnue || true
+RUN cp /app/G-ForceZero/cpp_engine_2.0/book.bin /app/lichess-bot/book.bin || true
 # Make start script executable
 RUN chmod +x /app/lichess-bot/start.sh
 

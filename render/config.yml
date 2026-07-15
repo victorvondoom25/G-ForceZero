@@ -2,7 +2,7 @@ token: "YOUR_API_TOKEN"
 url: "https://lichess.org/"
 
 engine:
-  dir: "/app/G-ForceZero/cpp_engine/"
+  dir: "/app/G-ForceZero/cpp_engine_2.0/"
   name: "nnue_engine"
   protocol: "uci"
   uci_options:
@@ -38,19 +38,21 @@ challenge:
 
 matchmaking:
   allow_matchmaking: true
-  challenge_timeout: 30
-  challenge_variant: standard
-  challenge_mode: rated
+  allow_during_games: false
+  challenge_timeout: 1
+  challenge_variant: "random"
+  challenge_mode: "random"
+  opponent_rating_difference: 300
+  rating_preference: "none"
+  challenge_filter: none
+  include_challenge_block_list: false
   challenge_initial_time:
     - 60
     - 180
     - 300
     - 600
-    - 900
   challenge_increment:
-    - 0
     - 1
     - 2
     - 3
     - 5
-    - 10
