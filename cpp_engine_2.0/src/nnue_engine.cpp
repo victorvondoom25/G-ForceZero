@@ -654,16 +654,10 @@ int evaluate(const Board& board, nnue::Accumulator& acc) {
         // Just to sample, don't flood stdout
         // std::cout << "DEBUG EVAL: " << nnue::evaluate(acc, board.sideToMove()) << std::endl;
     }
-    int classical = classical_evaluate(board);
+    
     int nnue_score = nnue::evaluate(acc, board.sideToMove());
-    
     // Convert NNUE internal units to centipawns (Stockfish 12 scale: 1 pawn = 208)
-    nnue_score = (nnue_score * 100) / 208;
-    
-    // Blend: weight controlled by opt_nnue_weight (0-100)
-    // Both are now in centipawns
-    int w = opt_nnue_weight;
-    return (nnue_score * w + classical * (100 - w)) / 100;
+    return (nnue_score * 100) / 208;
 }
 
 // ─── Piece index for continuation history ────────────────────────────────────
@@ -1659,11 +1653,9 @@ int main() {
         } else if (command == "eval") {
             nnue::Accumulator acc;
             nnue::init_accumulator(board, acc);
-            int classical = classical_evaluate(board);
             int nnue_score = nnue::evaluate(acc, board.sideToMove());
             nnue_score = (nnue_score * 100) / 208;
-            int blended = evaluate(board, acc);
-            std::cout << "Classical eval: " << classical << "\nNNUE eval: " << nnue_score << "\nBlended: " << blended << "\n";
+            std::cout << "NNUE eval: " << nnue_score << "\n";
         } else if (command == "position") {
             std::string token;
             ss >> token;

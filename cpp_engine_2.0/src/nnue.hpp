@@ -9,8 +9,8 @@ namespace nnue {
 extern "C" {
     void sf_nnue_init(const char* net_path);
     void* sf_nnue_create_accumulator(const char* fen);
-    void sf_nnue_update_accumulator(void* acc, const char* uci_move);
-    void sf_nnue_undo_accumulator(void* acc, const char* uci_move);
+    void sf_nnue_update_accumulator(void* acc, uint16_t move_bits);
+    void sf_nnue_undo_accumulator(void* acc);
     void sf_nnue_make_null_move(void* acc);
     void sf_nnue_undo_null_move(void* acc);
     int sf_nnue_evaluate(void* acc);

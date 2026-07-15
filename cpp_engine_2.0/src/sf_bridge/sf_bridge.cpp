@@ -68,9 +68,9 @@ void* sf_nnue_create_accumulator(const char* fen) {
     return acc;
 }
 
-void sf_nnue_update_accumulator(void* acc_ptr, const char* uci_move) {
+void sf_nnue_update_accumulator(void* acc_ptr, uint16_t move_bits) {
     auto* acc = static_cast<SFBridgeAccumulator*>(acc_ptr);
-    Move m = UCIEngine::to_move(acc->pos, uci_move);
+    Move m = Move(move_bits);
     if (m != Move::none()) {
         acc->move_history.push_back(m);
         acc->states->emplace_back();
@@ -86,7 +86,7 @@ int sf_nnue_evaluate(void* acc_ptr) {
     return score;
 }
 
-void sf_nnue_undo_accumulator(void* acc_ptr, const char* uci_move) {
+void sf_nnue_undo_accumulator(void* acc_ptr) {
     auto* acc = static_cast<SFBridgeAccumulator*>(acc_ptr);
     if (!acc->move_history.empty()) {
         Move m = acc->move_history.back();

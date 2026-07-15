@@ -17,14 +17,12 @@ void init_accumulator(const chess::Board& board, Accumulator& acc) {
 
 void update_accumulator(const chess::Board& board, const chess::Move& move, Accumulator& acc) {
     if (!acc.acc_ptr) return;
-    std::string uci_move = chess::uci::moveToUci(move);
-    sf_nnue_update_accumulator(acc.acc_ptr, uci_move.c_str());
+    sf_nnue_update_accumulator(acc.acc_ptr, move.move());
 }
 
 void undo_accumulator(const chess::Board& board, const chess::Move& move, Accumulator& acc) {
     if (!acc.acc_ptr) return;
-    std::string uci_move = chess::uci::moveToUci(move);
-    sf_nnue_undo_accumulator(acc.acc_ptr, uci_move.c_str());
+    sf_nnue_undo_accumulator(acc.acc_ptr);
 }
 
 void make_null_move_accumulator(Accumulator& acc) {
