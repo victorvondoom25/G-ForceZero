@@ -6,7 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG -march=native -Wall -Wextra")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_AVX2 -DUSE_POPCNT")
 
-set(SF_SRC "/home/sid/Documents/GitHub/Stockfish/src")
+include(FetchContent)
+FetchContent_Declare(
+  stockfish
+  GIT_REPOSITORY https://github.com/official-stockfish/Stockfish.git
+  GIT_TAG        9a8dd81dd7f98cbf02f16c59b4377d174d6eb4b5
+)
+FetchContent_MakeAvailable(stockfish)
+set(SF_SRC "${stockfish_SOURCE_DIR}/src")
 
 include_directories(${SF_SRC})
 
