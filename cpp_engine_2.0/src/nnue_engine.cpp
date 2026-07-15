@@ -69,8 +69,8 @@ struct TTEntry {
 };
 static_assert(sizeof(TTEntry) == 8, "TTEntry must be 8 bytes");
 
-const int TT_SIZE = 1 << 24;
-const int TT_MASK = TT_SIZE - 1;
+int TT_SIZE = 1 << 21; // 16 MB default
+int TT_MASK = TT_SIZE - 1;
 std::atomic<uint64_t>* TT = nullptr;
 
 #if defined(__linux__)
@@ -80,8 +80,24 @@ std::atomic<uint64_t>* TT = nullptr;
 #endif
 #endif
 
-void init_tt() {
-    if (TT) return;
+void init_tt(int mb_size = -1) {
+    if (TT) {
+        if (mb_size <= 0) return; // already initialized, no change
+#if defined(__linux__)
+        munmap(TT, TT_SIZE * sizeof(std::atomic<uint64_t>));
+#else
+        delete[] TT;
+#endif
+        TT = nullptr;
+    }
+    
+    if (mb_size > 0) {
+        size_t bytes = static_cast<size_t>(mb_size) * 1024 * 1024;
+        TT_SIZE = 1024;
+        while ((TT_SIZE * 8 * 2) <= bytes) TT_SIZE *= 2;
+        TT_MASK = TT_SIZE - 1;
+    }
+
     size_t size = TT_SIZE * sizeof(std::atomic<uint64_t>);
 #if defined(__linux__)
     void* mem = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
@@ -1579,12 +1595,15 @@ int main() {
                       << "option name FP_Margin_Mult type spin default 60 min 10 max 200\n"
                       << "option name EvalFile type string default brain.nnue\n"
                       << "option name SyzygyPath type string default <empty>\n"
+                      << "option name Hash type spin default 16 min 1 max 1048576\n"
                       << "uciok\n";
         } else if (command == "setoption") {
             std::string name, name_val, value, val_val;
             ss >> name >> name_val >> value >> val_val;
             if (name_val == "Threads") {
                 resize_thread_pool(std::max(1, std::min(64, std::stoi(val_val))));
+            } else if (name_val == "Hash") {
+                init_tt(std::max(1, std::stoi(val_val)));
             } else if (name_val == "NNUE_Weight") {
                 opt_nnue_weight = std::max(0, std::min(100, std::stoi(val_val)));
             } else if (name_val == "RFP_Margin") {
