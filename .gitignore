@@ -48,3 +48,4 @@ cpp_engine/build/
 *.o
 cpp_engine/nnue-probe/
 sf12/
+cpp_engine_2.0/_deps/
