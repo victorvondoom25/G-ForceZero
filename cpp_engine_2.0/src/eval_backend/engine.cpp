@@ -1,13 +1,13 @@
 /*
-  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2026 The Stockfish developers (see AUTHORS file)
+  GForce, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2026 The GForce developers (see AUTHORS file)
 
-  Stockfish is free software: you can redistribute it and/or modify
+  GForce is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
-  Stockfish is distributed in the hope that it will be useful,
+  GForce is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
@@ -44,7 +44,7 @@
 #include "uci.h"
 #include "ucioption.h"
 
-namespace Stockfish {
+namespace GForce {
 
 namespace NN = Eval::NNUE;
 
@@ -116,8 +116,8 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
     options.add("UCI_LimitStrength", Option(false));
 
     options.add("UCI_Elo",
-                Option(Stockfish::Search::Skill::LowestElo, Stockfish::Search::Skill::LowestElo,
-                       Stockfish::Search::Skill::HighestElo));
+                Option(GForce::Search::Skill::LowestElo, GForce::Search::Skill::LowestElo,
+                       GForce::Search::Skill::HighestElo));
 
     options.add("UCI_ShowWDL", Option(false));
 

@@ -16,7 +16,7 @@
 #include "types.h"
 #include "uci.h"
 
-using namespace Stockfish;
+using namespace GForce;
 
 static bool sf_initialized = false;
 static std::unique_ptr<Eval::NNUE::Network> global_network;
@@ -124,6 +124,6 @@ void sf_nnue_free_accumulator(void* acc_ptr) {
 
 void sf_nnue_print_fen(void* acc_ptr) {
     auto* acc = static_cast<SFBridgeAccumulator*>(acc_ptr);
-    std::cout << "Stockfish FEN: " << acc->pos.fen() << std::endl;
+    std::cout << "GForce FEN: " << acc->pos.fen() << std::endl;
 }
 }

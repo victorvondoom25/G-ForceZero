@@ -38,7 +38,7 @@ void undo_null_move_accumulator(Accumulator& acc) {
 int evaluate(const Accumulator& acc, chess::Color side_to_move) {
     if (!acc.acc_ptr) return 0;
     int score = sf_nnue_evaluate(acc.acc_ptr);
-    // Stockfish evaluate() already returns relative to the side to move!
+    // GForce evaluate() already returns relative to the side to move!
     return score;
 }
 

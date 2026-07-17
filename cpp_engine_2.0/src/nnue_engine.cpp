@@ -656,7 +656,7 @@ int evaluate(const Board& board, nnue::Accumulator& acc) {
     }
     
     int nnue_score = nnue::evaluate(acc, board.sideToMove());
-    // Convert NNUE internal units to centipawns (Stockfish 12 scale: 1 pawn = 208)
+    // Convert NNUE internal units to centipawns (GForce 12 scale: 1 pawn = 208)
     return (nnue_score * 100) / 208;
 }
 
@@ -874,7 +874,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
     }
     // probe_tt already fills tt_move from both buckets; no second scan needed.
 
-    // Internal Iterative Reduction (IIR) - from Stockfish
+    // Internal Iterative Reduction (IIR) - from GForce
     if (depth >= 6 && tt_move == Move::NULL_MOVE && !is_pv) {
         depth--;
     }
@@ -914,7 +914,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
             improving = true;
         }
         
-        // Adjust RFP margin based on improving status (Stockfish-like)
+        // Adjust RFP margin based on improving status (GForce-like)
         int rfp_margin = opt_rfp_margin * depth;
         if (!improving) rfp_margin += 50; // Less aggressive pruning if not improving
         
@@ -1084,7 +1084,7 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                 if (move == killer_moves[ply][0] || move == killer_moves[ply][1]) R--;
                 if (gives_check) R--;
                 
-                // History-based LMR adjustment (Stockfish idea)
+                // History-based LMR adjustment (GForce idea)
                 int color = static_cast<int>(board.sideToMove());
                 int hist_val = history_table[color][move.from().index()][move.to().index()];
                 R -= hist_val / 4096; // Good history reduces less, bad history reduces more
@@ -1542,7 +1542,7 @@ int main() {
     // Initialize LMR table
     init_lmr_table();
     
-    // Try loading in order: raw.bin (local), .nnue (direct Stockfish format), Docker paths
+    // Try loading in order: raw.bin (local), .nnue (direct GForce format), Docker paths
     auto try_load = [](const std::string& path) {
         std::ifstream f(path, std::ios::binary);
         return f.good();
