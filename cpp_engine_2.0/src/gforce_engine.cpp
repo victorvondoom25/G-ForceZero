@@ -1083,10 +1083,13 @@ int negamax(Board& board, int depth, int alpha, int beta, int ply, bool allow_nu
                 if (move == killer_moves[ply][0] || move == killer_moves[ply][1]) R--;
                 if (gives_check) R--;
                 
-                // History-based LMR adjustment (GForce idea)
+                // Caissa-inspired: reduce less if move has a good history score
                 int color = static_cast<int>(board.sideToMove());
-                int hist_val = history_table[color][move.from().index()][move.to().index()];
-                R -= hist_val / 4096; // Good history reduces less, bad history reduces more
+                int hist = history_table[color][move.from().index()][move.to().index()];
+                R -= hist / 4096;
+                
+                // Caissa-inspired: penalize late quiet moves with negative history even more
+                if (hist < 0) R++;
 
                 R = std::max(0, std::min(R, depth - 2));
             }
