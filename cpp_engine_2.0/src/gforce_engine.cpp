@@ -1,5 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  G-ForceZero NNUE Chess Engine
+//
+//  Acknowledgements: 
+//  Some critical search algorithms, heuristic structures, and function 
+//  references in this engine were inspired by and adapted from the Caissa 
+//  chess engine (https://github.com/Witek902/Caissa).
+//
 //  Features:
 //    • Negamax + Alpha-Beta + PVS
 //    • Iterative Deepening + Aspiration Windows (progressive widening)
@@ -18,7 +24,7 @@
 //    • Continuation History (1-ply and 2-ply)
 //    • Killer Moves (2 slots)
 //    • Counter-Move Heuristic
-//    • HalfKP NNUE (enabled, blended with Classical Eval)
+//    • HalfKAv2_hm NNUE (enabled, completely custom C++ parser)
 //    • Accurate time management with soft/hard limits
 //    • PV line tracking
 // ─────────────────────────────────────────────────────────────────────────────

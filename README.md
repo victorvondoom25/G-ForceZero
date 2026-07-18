@@ -2,6 +2,9 @@
 
 A custom, high-performance C++ Chess Engine built from scratch, powered by a custom **HalfKP NNUE** (Neural Network Updated Efficiently) and designed for autonomous cloud deployment.
 
+## Acknowledgements
+Some critical search algorithms, heuristic structures, and function references in this engine were inspired by and adapted from the [Caissa](https://github.com/Witek902/Caissa) chess engine. We are deeply grateful to its developers for their open-source contributions to computer chess.
+
 ---
 
 ## 📑 Table of Contents
